@@ -1,0 +1,11 @@
+streamlit==1.40.0
+httpx==0.27.2
+pydantic[email]==2.10.3
+asyncpg==0.30.0
+openai==1.57.0
+boto3==1.35.80
+python-jose[cryptography]==3.3.0
+python-dotenv==1.0.1
+pytest==7.4.4
+pytest-asyncio==0.23.3
+pytest-cov==4.1.0
