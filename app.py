@@ -9,10 +9,15 @@ Demo mode activates automatically when APIM_BASE_URL is not configured.
 In live mode, a sidebar toggle lets you flip demo data on/off instantly.
 """
 
+import sys
+import os
+
+# Ensure src/ is on the path so all package imports resolve from the project root
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+
 import streamlit as st
 import asyncio
 import logging
-import os
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Any
