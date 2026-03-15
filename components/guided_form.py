@@ -124,6 +124,114 @@ _BOOL_FLAG_FIELDS = {
 
 
 # ---------------------------------------------------------------------------
+# VALUE → STRING HELPER (module-level, reused by preview + amend panel)
+# ---------------------------------------------------------------------------
+
+def _val_to_str(val) -> str:
+    """Convert any spec field value to a short display string."""
+    if val is None or val == "" or val == []:
+        return "—"
+    if isinstance(val, list):
+        return ", ".join(str(v) for v in val) if val else "—"
+    if isinstance(val, bool):
+        return "Yes" if val else "No"
+    if isinstance(val, (date, datetime)):
+        return val.isoformat()
+    text = str(val)
+    return text[:60] + "…" if len(text) > 60 else text
+
+
+# ---------------------------------------------------------------------------
+# AMEND PANEL — lists all answered fields with jump-to-edit buttons
+# ---------------------------------------------------------------------------
+
+def _render_amend_panel(
+    field_list: list,
+    field_status: dict,
+    spec: DataProductSpec,
+    path: str,
+    original_spec: Optional[DataProductSpec],
+) -> Optional[int]:
+    """
+    Render a collapsible 'Review answers' panel in the right column.
+
+    Shows every answered/skipped field with its current value and an Edit button.
+    In remix mode, highlights fields that differ from the original.
+    Returns the field_idx to jump to if Edit was clicked, else None.
+    """
+    answered = [
+        (i, f) for i, f in enumerate(field_list)
+        if field_status.get(f) in (FIELD_STATUS_ANSWERED, FIELD_STATUS_SKIPPED)
+    ]
+    if not answered:
+        return None
+
+    changed_count = 0
+    if path == "remix" and original_spec is not None:
+        for _, f in answered:
+            orig = _val_to_str(getattr(original_spec, f, None))
+            curr = _val_to_str(getattr(spec, f, None))
+            if orig != curr:
+                changed_count += 1
+
+    label = f"Review answers · {len(answered)} filled"
+    if changed_count:
+        label += f" · {changed_count} changed"
+
+    with st.expander(label, expanded=False):
+        jump_to = None
+        for i, (field_idx, field_name) in enumerate(answered):
+            meta = get_field_meta(field_name)
+            display_label = meta.get("label", field_name)
+            status = field_status.get(field_name)
+            curr_str = _val_to_str(getattr(spec, field_name, None))
+
+            # Diff for remix
+            is_changed = False
+            orig_str = None
+            if path == "remix" and original_spec is not None:
+                orig_str = _val_to_str(getattr(original_spec, field_name, None))
+                is_changed = orig_str != curr_str
+
+            if status == FIELD_STATUS_SKIPPED:
+                val_color = "#F5A623"
+                val_display = "— skipped"
+            elif is_changed:
+                val_color = "#00C48C"
+                val_display = curr_str
+            else:
+                val_color = "#006B73"
+                val_display = curr_str
+
+            col_lbl, col_val, col_btn = st.columns([2, 3, 1], gap="small")
+            with col_lbl:
+                st.markdown(
+                    f'<div style="font-size:.78rem;color:#5B6A7E;padding:4px 0;">{display_label}</div>',
+                    unsafe_allow_html=True,
+                )
+            with col_val:
+                orig_html = ""
+                if is_changed and orig_str and orig_str != "—":
+                    orig_html = (
+                        f'<span style="color:#8C9BAA;text-decoration:line-through;'
+                        f'font-size:.72rem;margin-right:4px;">{orig_str}</span>'
+                    )
+                st.markdown(
+                    f'<div style="font-size:.78rem;padding:4px 0;">'
+                    f'{orig_html}<span style="color:{val_color};">{val_display}</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+            with col_btn:
+                if st.button("Edit", key=f"amend_{field_name}_{field_idx}_{i}", use_container_width=True):
+                    jump_to = field_idx
+
+        return jump_to
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # SESSION STATE INITIALISATION
 # ---------------------------------------------------------------------------
 
@@ -200,16 +308,13 @@ def _render_widget(field_name: str, meta: dict, current_value, valid_options: di
     # --- Selectbox fields ---
     if effective_options:
         current_str = str(current_value) if current_value is not None else None
-        try:
-            default_idx = effective_options.index(current_str) if current_str in effective_options else 0
-        except ValueError:
+        if current_str and current_str in effective_options:
+            display_options = effective_options
+            default_idx = effective_options.index(current_str)
+        else:
+            display_options = ["— Select —"] + effective_options
             default_idx = 0
-        return st.selectbox(
-            "",
-            effective_options,
-            index=default_idx,
-            key=widget_key,
-        )
+        return st.selectbox("", display_options, index=default_idx, key=widget_key)
 
     # --- Date input ---
     if field_name in _DATE_FIELDS:
@@ -292,6 +397,9 @@ def _assign_value(spec: DataProductSpec, field_name: str, raw_value) -> DataProd
             spec_dict[field_name] = items if items else None
         else:
             spec_dict[field_name] = raw_value
+
+    elif raw_value == "— Select —":
+        spec_dict[field_name] = None
 
     else:
         # Plain string — store or None if empty
@@ -580,6 +688,7 @@ def _render_field_card(
     field_idx: int,
     field_list: list,
     field_status: dict,
+    tier_label_override: str = None,
 ) -> tuple:
     """
     Render the field card for the current field.
@@ -590,7 +699,7 @@ def _render_field_card(
     meta = get_field_meta(field_name)
     total = len(field_list)
 
-    tier_label = "Business — Required" if tier == 1 else "Business — Optional"
+    tier_label = tier_label_override if tier_label_override else ("Business — Required" if tier == 1 else "Business — Optional")
 
     # --- Remix chip ---
     if path == "remix":
@@ -604,11 +713,18 @@ def _render_field_card(
         st.markdown("<div style='margin-bottom:8px;'></div>", unsafe_allow_html=True)
 
     # --- Progress header ---
+    pct = int((field_idx / max(total, 1)) * 100)
+    bar_color = "#00C48C" if pct >= 80 else "#00C2CB"
     st.markdown(
-        f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">'
+        f'<div style="margin-bottom:14px;">'
+        f'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">'
         f'<span style="font-size:12px;color:#8C9BAA;">Field {field_idx + 1} of {total}</span>'
         f'<span style="background:rgba(0,194,203,0.12);color:#006B73;font-size:11px;'
         f'font-weight:600;padding:2px 10px;border-radius:10px;">{tier_label}</span>'
+        f'</div>'
+        f'<div style="background:rgba(13,27,42,0.08);border-radius:100px;height:3px;">'
+        f'<div style="background:{bar_color};width:{pct}%;height:100%;border-radius:100px;transition:width .3s ease;"></div>'
+        f'</div>'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -627,15 +743,15 @@ def _render_field_card(
         unsafe_allow_html=True,
     )
 
-    # --- Widget ---
-    current_value = getattr(spec, field_name, None)
-    widget_key = f"gf_widget_{tier}_{field_name}_{field_idx}"
-    raw_value = _render_widget(field_name, meta, current_value, valid_options, widget_key)
-
     # --- Guidance ---
     explanation = meta.get("explanation", "")
     if explanation:
         render_guidance(explanation)
+
+    # --- Widget ---
+    current_value = getattr(spec, field_name, None)
+    widget_key = f"gf_widget_{tier}_{field_name}_{field_idx}"
+    raw_value = _render_widget(field_name, meta, current_value, valid_options, widget_key)
 
     st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
 
@@ -663,7 +779,7 @@ def _render_field_card(
 
     with col_skip:
         if st.button(
-            "I don't know this yet",
+            "Skip for now",
             key=f"gf_skip_{tier}_{field_name}_{field_idx}",
             use_container_width=True,
         ):
@@ -736,6 +852,7 @@ def render_guided_form(
         valid_options = {}
 
     from components.maturity_dashboard import render_maturity_dashboard
+    from components.maturity_dashboard import _PANELS as _MD_PANELS
 
     # Initialise session state
     _init_session_state(spec)
@@ -775,9 +892,7 @@ def render_guided_form(
                 return spec, "handoff"
             elif dashboard_action == "fill_all":
                 # Queue all panels in order, start first
-                all_keys = [p["key"] for p in __import__(
-                    "components.maturity_dashboard", fromlist=["_PANELS"]
-                )._PANELS]
+                all_keys = [p["key"] for p in _MD_PANELS]
                 st.session_state["gf_panel_queue"] = all_keys[1:]  # remainder after first
                 st.session_state["gf_active_panel"] = all_keys[0]
                 st.session_state["gf_field_idx"] = 0
@@ -791,6 +906,9 @@ def render_guided_form(
 
         # --- Panel complete: advance queue or return to dashboard ---
         if active_panel and field_idx >= total:
+            # Find the panel title for the toast
+            panel_title = active_panel.replace("panel_", "").replace("_", " ").title()
+            st.toast(f"✓ {panel_title} complete", icon="✅")
             panel_queue = st.session_state.get("gf_panel_queue", [])
             if panel_queue:
                 # Auto-advance to next queued panel
@@ -811,7 +929,7 @@ def render_guided_form(
         # --- Normal field card ---
         tier_label_override = None
         if active_panel:
-            panel_meta = next((p for p in __import__("components.maturity_dashboard", fromlist=["_PANELS"])._PANELS if p["key"] == active_panel), None)
+            panel_meta = next((p for p in _MD_PANELS if p["key"] == active_panel), None)
             if panel_meta:
                 tier_label_override = f"Enhancement · {panel_meta['title']}"
 
@@ -823,6 +941,7 @@ def render_guided_form(
             field_idx=field_idx,
             field_list=field_list,
             field_status=field_status,
+            tier_label_override=tier_label_override,
         )
 
         # If we just advanced past tier 1 last field, flip to dashboard on next render

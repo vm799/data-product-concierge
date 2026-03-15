@@ -276,8 +276,15 @@ def render(
         unsafe_allow_html=True,
     )
 
-    st.markdown("## Handoff Summary")
-    st.markdown("Review your data product specification before submission.")
+    if narrative and narrative.strip() and narrative.strip() != concierge_message.strip():
+        st.markdown(
+            f'<p style="font-size:.95rem;color:#5B6A7E;line-height:1.6;margin:1rem 0 1.5rem;">{narrative}</p>',
+            unsafe_allow_html=True,
+        )
+
+    product_name = spec.name or "Data Product"
+    st.markdown(f"## {product_name} — Ready for Review")
+    st.markdown("Your specification is complete. Review the details below, then export or submit for governance review.")
 
     # SECTION A: Completion Dashboard
     completion_pct = spec.completion_percentage()
@@ -416,26 +423,13 @@ def render(
             f"Go back and fill them in, or hand off to the tech team to complete."
         )
 
-    # ── Guardrail 2: no team notified ────────────────────────────────────────
+    # ── Guardrail 2: no team notified (soft warning only — does not block submit) ──
     elif not assignments_sent:
         st.warning(
-            "**⚠ No team member has been notified yet.**\n\n"
-            "Use **Assign & Notify Team** above to send the assignment email before submitting. "
-            "Without notification, the submission will sit unactioned — "
-            "no engineer will know to build it in Snowflake, and no owner will know to approve it."
+            "**No team member has been notified yet.**\n\n"
+            "Consider using **Assign & Notify Team** above to loop in your data engineering team "
+            "or data owner — but you can still submit now and share the spec yourself."
         )
-        # Allow override, but make it clearly secondary — not the obvious choice
-        with st.expander("Submit anyway (not recommended)", expanded=False):
-            st.caption(
-                "Only do this if you've already notified the team through another channel "
-                "(e.g. Slack, Teams, or direct email not tracked here)."
-            )
-            if st.button(
-                "Confirm — submit without notification",
-                use_container_width=True,
-                key="submit_force_unnotified",
-            ):
-                action_result = "submit"
 
     # ── All checks passed ─────────────────────────────────────────────────────
     else:

@@ -142,7 +142,8 @@ def render_results(
     # Render each result as a card
     for idx, result in enumerate(visible_results):
         # Determine domain badge color (rotating through 5 colors)
-        domain_color = f"color-{(idx % 5) + 1}"
+        # Consistent color per domain name (hash-based, not position-based)
+        domain_color = f"color-{(hash(result.domain or '') % 5) + 1}"
 
         # Format regulatory scope pills (max 3 shown, +N more if needed)
         regulatory_pills = ""
@@ -233,7 +234,7 @@ def render_results(
 
         with col1:
             if st.button(
-                "✓ USE AS IS",
+                "✓ Use as is",
                 key=f"reuse_{result.id}_{idx}",
                 use_container_width=True,
                 type="primary",
@@ -243,7 +244,7 @@ def render_results(
 
         with col2:
             if st.button(
-                "✂ ADAPT THIS",
+                "✂ Adapt this",
                 key=f"remix_{result.id}_{idx}",
                 use_container_width=True,
                 type="secondary",
@@ -253,7 +254,7 @@ def render_results(
 
         st.markdown('<div class="dpc-btn-muted" style="margin-top:6px;">', unsafe_allow_html=True)
         if st.button(
-            "✕ Not what I need — skip",
+            "Skip →",
             key=f"skip_{result.id}_{idx}",
             use_container_width=True,
         ):
@@ -277,22 +278,17 @@ def render_results(
         )
 
     # Bottom CTA: Build your own
-    create_html = """
-    <div style="text-align: center; margin-top: 2rem; margin-bottom: 1rem;">
-        <p style="color: var(--text-secondary); margin-bottom: 1rem;">
-            None of these match? Build a new governed data product from scratch.
-        </p>
-    </div>
-    """
-    st.html(create_html)
-
-    if st.button(
-        "🏗 BUILD YOUR OWN",
-        use_container_width=True,
-        key="create_from_scratch",
-        type="primary",
-    ):
-        selected_asset = None
-        action_path = "create"
+    if not visible_results:
+        # Full prominence when no results left (no matches or all skipped)
+        st.html('<div style="text-align:center;margin-top:2rem;margin-bottom:1rem;"><p style="color:var(--text-secondary);margin-bottom:1rem;">None of these match? Build a new governed data product from scratch.</p></div>')
+        if st.button("🏗 Build your own", use_container_width=True, key="create_from_scratch", type="primary"):
+            selected_asset = None
+            action_path = "create"
+    else:
+        # Subtle escape hatch when results are still visible
+        st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+        if st.button("None of these match — build your own →", use_container_width=False, key="create_from_scratch"):
+            selected_asset = None
+            action_path = "create"
 
     return selected_asset, action_path

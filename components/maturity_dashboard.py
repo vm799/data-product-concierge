@@ -227,21 +227,21 @@ def render_maturity_dashboard(
             status_chip = (
                 '<span style="background:rgba(0,196,140,0.12);color:#00C48C;'
                 'border:1px solid rgba(0,196,140,0.3);border-radius:100px;'
-                'padding:2px 9px;font-size:.68rem;font-weight:700;">'
+                'padding:2px 9px;font-size:.72rem;font-weight:700;">'
                 '✓ Complete</span>'
             )
         elif in_progress:
             status_chip = (
                 f'<span style="background:rgba(245,166,35,0.10);color:#a66d00;'
                 f'border:1px solid rgba(245,166,35,0.3);border-radius:100px;'
-                f'padding:2px 9px;font-size:.68rem;font-weight:700;">'
+                f'padding:2px 9px;font-size:.72rem;font-weight:700;">'
                 f'{answered}/{total} done</span>'
             )
         else:
             status_chip = (
                 f'<span style="background:{panel["level_bg"]};color:{panel["level_color"]};'
                 f'border:1px solid {panel["level_color"]}33;border-radius:100px;'
-                f'padding:2px 9px;font-size:.68rem;font-weight:700;">'
+                f'padding:2px 9px;font-size:.72rem;font-weight:700;">'
                 f'{panel["level"]}</span>'
             )
 
@@ -257,7 +257,7 @@ def render_maturity_dashboard(
             field_chips += (
                 f'<span style="display:inline-block;background:{chip_bg};'
                 f'color:{chip_color};border:1px solid {chip_border};'
-                f'border-radius:6px;padding:2px 8px;font-size:.72rem;'
+                f'border-radius:6px;padding:2px 8px;font-size:.78rem;'
                 f'font-weight:500;margin:2px 3px 2px 0;">'
                 f'{checkmark}{label}</span>'
             )
@@ -284,8 +284,9 @@ def render_maturity_dashboard(
             # Field chips
             f'<div style="margin-bottom:4px;">{field_chips}</div>'
             # Why this matters
-            f'<div style="font-size:.72rem;color:#8C9BAA;margin-top:6px;'
-            f'font-style:italic;">{panel["why"]}</div>'
+            f'<div style="font-size:.78rem;color:#5B6A7E;margin-top:8px;'
+            f'padding-left:8px;border-left:2px solid rgba(0,194,203,0.35);line-height:1.5;">'
+            f'{panel["why"]}</div>'
             f'</div>'
         )
 

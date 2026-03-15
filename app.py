@@ -516,9 +516,12 @@ def handle_results():
             _audit("path_chosen", f"reuse: {selected.name}")
             st.session_state.step = "path_a"
         elif path == "remix":
-            st.session_state.spec = _demo_sample_spec() if _demo_active() else run_async(
+            _loaded = _demo_sample_spec() if _demo_active() else run_async(
                 st.session_state.collibra_client.get_asset_detail(selected.id)
             )
+            st.session_state.spec = _loaded
+            # Snapshot the original so the form can show diffs
+            st.session_state.original_spec = DataProductSpec(**_loaded.dict())
             _audit("path_chosen", f"remix: {selected.name}")
             st.session_state.step = "path_b"
             st.session_state.chapter = 1
@@ -1119,6 +1122,68 @@ def render_sidebar():
 
 
 # ---------------------------------------------------------------------------
+# Breadcrumb
+# ---------------------------------------------------------------------------
+def _render_breadcrumb() -> None:
+    """Render macro journey breadcrumb — shown on all steps except search."""
+    step = st.session_state.get("step", "search")
+    if step == "search":
+        return  # No breadcrumb on home
+
+    # Map step to stage index (1-based)
+    if step == "results":
+        active = 2
+    elif step in ("path_a",):
+        active = 3
+    elif step in ("path_b", "path_c", "guided_form"):
+        active = 3
+    elif step in ("handoff", "colleague_handoff"):
+        active = 4
+    else:
+        active = 2
+
+    stages = ["Search", "Results", "Build", "Review"]
+    chips = ""
+    for i, label in enumerate(stages, 1):
+        if i < active:
+            # Completed
+            color = "#006B73"
+            bg = "rgba(0,107,115,0.08)"
+            border = "rgba(0,107,115,0.25)"
+            prefix = "✓ "
+        elif i == active:
+            # Current
+            color = "#006B73"
+            bg = "rgba(0,194,203,0.12)"
+            border = "#00C2CB"
+            prefix = ""
+        else:
+            # Future
+            color = "#8C9BAA"
+            bg = "transparent"
+            border = "rgba(13,27,42,0.10)"
+            prefix = ""
+
+        connector = (
+            '<span style="color:rgba(13,27,42,0.15);font-size:.8rem;margin:0 4px;">›</span>'
+            if i < len(stages) else ""
+        )
+        chips += (
+            f'<span style="display:inline-flex;align-items:center;background:{bg};'
+            f'color:{color};border:1px solid {border};border-radius:100px;'
+            f'padding:3px 12px;font-size:.75rem;font-weight:600;">'
+            f'{prefix}{label}</span>{connector}'
+        )
+
+    st.markdown(
+        f'<div style="display:flex;align-items:center;gap:4px;margin-bottom:1.25rem;">'
+        f'{chips}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 def main():
@@ -1135,6 +1200,9 @@ def main():
     # Inject Cmd+Enter keyboard shortcut on form/handoff pages
     if _HAS_UX_HELPERS and step in ("path_b", "path_c", "handoff"):
         inject_keyboard_submit()
+
+    # Breadcrumb — shown on every step except search (function returns early for search)
+    _render_breadcrumb()
 
     # Route
     try:
