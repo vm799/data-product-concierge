@@ -937,14 +937,17 @@ def _render_live_spec(spec: DataProductSpec, field_status: dict):
     not_needed = sum(1 for s in field_status.values() if s == FIELD_STATUS_NOT_NEEDED)
     deferred = sum(1 for s in field_status.values() if s == FIELD_STATUS_DEFERRED)
     total_business = len(BUSINESS_FLOW_ORDER)
-    completion = spec.completion_percentage()
+    # Use field_status counts — updates immediately after each answer,
+    # unlike spec.completion_percentage() which starts at 0 for a blank CREATE spec.
+    fields_done = answered + not_needed
+    progress_pct = (fields_done / total_business) if total_business > 0 else 0.0
 
-    st.progress(completion / 100)
+    st.progress(min(progress_pct, 1.0))
+    remaining = total_business - fields_done
     st.caption(
-        f"{completion:.0f}% complete · "
-        f"{answered} answered · "
-        f"{not_needed} N/A · "
-        f"{deferred} deferred"
+        f"{fields_done} of {total_business} answered"
+        + (f" · {deferred} deferred" if deferred else "")
+        + (f" · {remaining} remaining" if remaining > 0 else " · All done ✓")
     )
 
     for section_name, fields in _SPEC_SECTIONS:
@@ -1339,8 +1342,40 @@ def render_conversation(
     with col_chat:
         # Chat history
         for msg in st.session_state.chat_history:
-            with st.chat_message(msg["role"], avatar="🤖" if msg["role"] == "assistant" else "👤"):
-                st.markdown(msg["content"])
+            role = msg["role"]
+            content = msg["content"]
+            if role == "assistant":
+                with st.chat_message("assistant", avatar="✦"):
+                    # Detect structured question (numbered bold items = turn-group prompt)
+                    is_question = bool(re.search(r'^\s*\d+\.\s+\*\*', content, re.MULTILINE))
+                    if is_question:
+                        st.markdown(
+                            '<span style="font-size:.6rem;font-weight:700;color:#00C2CB;'
+                            'text-transform:uppercase;letter-spacing:.1em;display:block;'
+                            'margin-bottom:.25rem;">📋 Concierge asks</span>',
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.markdown(
+                            '<span style="font-size:.6rem;font-weight:600;color:#8C9BAA;'
+                            'text-transform:uppercase;letter-spacing:.08em;display:block;'
+                            'margin-bottom:.2rem;">✦ Concierge</span>',
+                            unsafe_allow_html=True,
+                        )
+                    st.markdown(content)
+            else:
+                with st.chat_message("user", avatar="👤"):
+                    st.markdown(
+                        '<span style="font-size:.6rem;font-weight:600;color:#8C9BAA;'
+                        'text-transform:uppercase;letter-spacing:.08em;display:block;'
+                        'margin-bottom:.2rem;">You</span>',
+                        unsafe_allow_html=True,
+                    )
+                    # Single-line replies rendered italic for contrast with agent questions
+                    if "\n" not in content and len(content) < 150:
+                        st.markdown(f"*{content}*")
+                    else:
+                        st.markdown(content)
 
         # Business fields done — offer handover + submit
         if business_done or not current_field:

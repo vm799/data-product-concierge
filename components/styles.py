@@ -340,31 +340,44 @@ def inject_styles():
     }
 
     /* ============================================================================
-       PRIMARY CTA BUTTONS — teal, visually distinct from secondary navy buttons
+       PRIMARY CTA BUTTONS — dark teal, decisively different from pill/accent teal
        ============================================================================ */
     [data-testid="baseButton-primary"],
     button[data-testid="baseButton-primary"] {
-        background-color: #00C2CB !important;
-        color: #0D1B2A !important;
+        background-color: #006B73 !important;
+        color: #FFFFFF !important;
         border: none !important;
-        box-shadow: 0 2px 12px rgba(0,194,203,0.35) !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.01em !important;
+        box-shadow: 0 2px 10px rgba(0, 107, 115, 0.35) !important;
+        transition: background-color 0.15s ease, box-shadow 0.15s ease !important;
     }
 
     [data-testid="baseButton-primary"] p,
     button[data-testid="baseButton-primary"] p {
-        color: #0D1B2A !important;
+        color: #FFFFFF !important;
+        font-weight: 600 !important;
     }
 
     [data-testid="baseButton-primary"]:hover,
     button[data-testid="baseButton-primary"]:hover {
-        background-color: #009FA8 !important;
+        background-color: #005960 !important;
         color: #FFFFFF !important;
-        box-shadow: 0 4px 20px rgba(0,194,203,0.50) !important;
+        box-shadow: 0 4px 18px rgba(0, 107, 115, 0.50) !important;
     }
 
-    [data-testid="baseButton-primary"] p:hover,
+    [data-testid="baseButton-primary"]:hover p,
     button[data-testid="baseButton-primary"]:hover p {
         color: #FFFFFF !important;
+    }
+
+    /* Disabled primary buttons — clearly not clickable */
+    [data-testid="baseButton-primary"]:disabled,
+    button[data-testid="baseButton-primary"]:disabled {
+        background-color: rgba(0, 107, 115, 0.30) !important;
+        color: rgba(255, 255, 255, 0.5) !important;
+        box-shadow: none !important;
+        cursor: not-allowed !important;
     }
 
     /* ============================================================================
@@ -1467,10 +1480,52 @@ def inject_styles():
         box-shadow: 0 0 0 3px rgba(0, 194, 203, 0.15) !important;
     }
 
-    /* Chat messages — alternating subtle backgrounds */
-    [data-testid="stChatMessage"]:nth-child(even) {
-        background: rgba(240, 244, 248, 0.5) !important;
-        border-radius: 12px !important;
+    /* ============================================================================
+       CHAT MESSAGE VISUAL HIERARCHY
+       ============================================================================ */
+
+    /* Base: all chat messages get consistent padding + radius */
+    [data-testid="stChatMessage"] {
+        border-radius: 10px !important;
+        padding: 10px 14px !important;
+        margin-bottom: 6px !important;
+        border-left: 3px solid transparent !important;
+        transition: background 0.15s ease !important;
+    }
+
+    /* Agent / assistant messages — teal left stripe + very light teal wash */
+    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) {
+        background: rgba(0, 194, 203, 0.07) !important;
+        border-left-color: rgba(0, 194, 203, 0.6) !important;
+    }
+
+    /* User messages — navy-grey tint, right-aligned feel via a darker stripe */
+    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
+        background: rgba(13, 27, 42, 0.04) !important;
+        border-left-color: rgba(13, 27, 42, 0.12) !important;
+    }
+
+    /* Fallback for browsers without :has() — use odd/even position */
+    /* (Conversations start with assistant, so odd = agent, even = user in normal flow) */
+    @supports not selector(:has(a)) {
+        [data-testid="stChatMessage"]:nth-child(odd) {
+            background: rgba(0, 194, 203, 0.07) !important;
+            border-left: 3px solid rgba(0, 194, 203, 0.5) !important;
+        }
+        [data-testid="stChatMessage"]:nth-child(even) {
+            background: rgba(13, 27, 42, 0.04) !important;
+            border-left: 3px solid rgba(13, 27, 42, 0.12) !important;
+        }
+    }
+
+    /* "📋 Concierge asks" badge — already injected inline, just ensure it stands out */
+    [data-testid="stChatMessage"] em {
+        color: var(--text-secondary) !important;
+    }
+
+    /* Chat input — teal focus ring */
+    [data-testid="stChatInput"] textarea {
+        border-radius: 10px !important;
     }
 
     /* ============================================================================

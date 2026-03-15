@@ -414,18 +414,65 @@ def render(
     render_team_assignment(spec)
     st.divider()
 
-    # SECTION D: Action buttons
+    # SECTION D: Action buttons with pre-flight guardrails
     st.markdown("### Next Steps")
-
-    col1, col2 = st.columns(2)
 
     action_result = None
 
+    missing_required = spec.required_missing()
+    assignments_sent = st.session_state.get("assignments", [])
+
+    # ── Guardrail 1: required fields incomplete ──────────────────────────────
+    if missing_required:
+        field_list = ", ".join(f"`{f}`" for f in missing_required[:6])
+        overflow = f" and {len(missing_required) - 6} more" if len(missing_required) > 6 else ""
+        st.error(
+            f"**{len(missing_required)} required field{'s' if len(missing_required) > 1 else ''} still missing** — "
+            f"complete these before submitting:\n\n"
+            f"{field_list}{overflow}\n\n"
+            f"Go back and fill them in, or hand off to the tech team to complete."
+        )
+
+    # ── Guardrail 2: no team notified ────────────────────────────────────────
+    elif not assignments_sent:
+        st.warning(
+            "**⚠ No team member has been notified yet.**\n\n"
+            "Use **Assign & Notify Team** above to send the assignment email before submitting. "
+            "Without notification, the submission will sit unactioned — "
+            "no engineer will know to build it in Snowflake, and no owner will know to approve it."
+        )
+        # Allow override, but make it clearly secondary — not the obvious choice
+        with st.expander("Submit anyway (not recommended)", expanded=False):
+            st.caption(
+                "Only do this if you've already notified the team through another channel "
+                "(e.g. Slack, Teams, or direct email not tracked here)."
+            )
+            if st.button(
+                "Confirm — submit without notification",
+                use_container_width=True,
+                key="submit_force_unnotified",
+            ):
+                action_result = "submit"
+
+    # ── All checks passed ─────────────────────────────────────────────────────
+    else:
+        last = assignments_sent[-1]
+        st.success(
+            f"✓ **{last['role']}** notified — {last['email']} at {last['ts']}. "
+            f"Ready to submit."
+        )
+
+    # ── Buttons row (submit disabled if checks fail) ──────────────────────────
+    col1, col2 = st.columns(2)
+
     with col1:
+        submit_blocked = bool(missing_required)
         if st.button(
             "✅ Submit for Technical Review",
             use_container_width=True,
             type="primary",
+            disabled=submit_blocked,
+            key="submit_for_review_btn",
         ):
             action_result = "submit"
 
@@ -433,6 +480,7 @@ def render(
         if st.button(
             "← Go back and edit",
             use_container_width=True,
+            key="go_back_edit_btn",
         ):
             action_result = "edit"
 

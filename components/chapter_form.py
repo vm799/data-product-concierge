@@ -660,6 +660,24 @@ def render_chapter(
     """
     chapter_data = CHAPTERS[chapter]
 
+    # Scroll to top + focus first field when entering a new chapter
+    if st.session_state.pop("_chapter_just_changed", False):
+        st.components.v1.html(
+            "<script>"
+            "try{"
+            "  var m=window.parent.document.querySelector('section[data-testid=\"stMain\"] .main')||"
+            "         window.parent.document.querySelector('.main');"
+            "  if(m) m.scrollTo({top:0,behavior:'smooth'});"
+            "  setTimeout(function(){"
+            "    var inp=window.parent.document.querySelector("
+            "      'input:not([type=checkbox]):not([type=hidden]),textarea');"
+            "    if(inp){inp.focus();inp.select();}"
+            "  },350);"
+            "}catch(e){}"
+            "</script>",
+            height=0,
+        )
+
     # Snapshot spec at chapter entry to detect field changes for rule triggers
     snapshot_key = f"_chapter_{chapter}_snapshot"
     if snapshot_key not in st.session_state:
@@ -1172,21 +1190,57 @@ def render_chapter(
     st.session_state[f"_chapter_{chapter}_snapshot"] = spec.model_dump()
 
     # Navigation buttons
+    st.markdown('<div style="margin-top:1.5rem;"></div>', unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
 
     nav_action = None
 
     with col1:
         if chapter > 1:
-            if st.button("← Previous chapter", use_container_width=True):
+            if st.button(
+                "← Previous",
+                use_container_width=True,
+                key=f"ch_{chapter}_prev",
+            ):
                 nav_action = "prev"
+
+    with col2:
+        # Chapter position indicator — centred, no interaction
+        fields_here = CHAPTERS[chapter]["fields"]
+        required_here = [f for f in fields_here if f in REQUIRED_FIELDS]
+        filled_here = [
+            f for f in required_here
+            if getattr(spec, f, None) not in (None, "", [])
+        ]
+        all_done = len(filled_here) == len(required_here) if required_here else True
+        dot = "✓" if all_done else f"{len(filled_here)}/{len(required_here)}"
+        color = "#00C48C" if all_done else "#F5A623"
+        st.markdown(
+            f'<div style="text-align:center;padding:.4rem 0;">'
+            f'<span style="font-size:.7rem;color:var(--text-muted);text-transform:uppercase;'
+            f'letter-spacing:.1em;">Chapter {chapter} of 5</span><br>'
+            f'<span style="font-size:.8rem;font-weight:600;color:{color};">'
+            f'{dot} required fields</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
     with col3:
         if chapter < 5:
-            if st.button("Looks good → next chapter", use_container_width=True, type="primary"):
+            if st.button(
+                "Looks good → next",
+                use_container_width=True,
+                type="primary",
+                key=f"ch_{chapter}_next",
+            ):
                 nav_action = "next"
         else:
-            if st.button("Review & Submit →", use_container_width=True, type="primary"):
+            if st.button(
+                "Review & Submit →",
+                use_container_width=True,
+                type="primary",
+                key=f"ch_{chapter}_submit",
+            ):
                 nav_action = "submit"
 
     return spec, nav_action or "stay"

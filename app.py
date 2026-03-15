@@ -29,13 +29,24 @@ st.set_page_config(
 # Bridge Streamlit Cloud secrets → os.environ (silent if no secrets file)
 # ---------------------------------------------------------------------------
 def _load_streamlit_secrets_to_env():
+    """
+    Copy Streamlit secrets into os.environ without ever triggering the
+    'No secrets found' UI error.  We check for the file on disk first —
+    if it doesn't exist we return immediately, never touching st.secrets.
+    """
+    import pathlib
+    candidate_paths = [
+        pathlib.Path.home() / ".streamlit" / "secrets.toml",
+        pathlib.Path(__file__).parent / ".streamlit" / "secrets.toml",
+    ]
+    if not any(p.exists() for p in candidate_paths):
+        return  # No secrets file — skip silently, no UI error
     try:
-        if hasattr(st, "secrets") and len(st.secrets) > 0:
-            for key in st.secrets:
-                if isinstance(st.secrets[key], str) and key not in os.environ:
-                    os.environ[key] = st.secrets[key]
+        for key in st.secrets:
+            if isinstance(st.secrets[key], str) and key not in os.environ:
+                os.environ[key] = st.secrets[key]
     except Exception:
-        pass  # No secrets.toml present — running in demo/preview mode
+        pass
 
 
 _load_streamlit_secrets_to_env()
@@ -636,9 +647,11 @@ def handle_chapter_form(path_label: str):
 
     if nav_action == "next" and chapter < 5:
         st.session_state.chapter = chapter + 1
+        st.session_state._chapter_just_changed = True
         st.rerun()
     elif nav_action == "prev" and chapter > 1:
         st.session_state.chapter = chapter - 1
+        st.session_state._chapter_just_changed = True
         st.rerun()
     elif nav_action == "submit":
         _audit("chapter_submit", f"all chapters submitted → handoff")
