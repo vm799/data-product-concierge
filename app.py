@@ -66,6 +66,25 @@ _SECRETS_LOADED = _load_streamlit_secrets_to_env()
 
 
 # ---------------------------------------------------------------------------
+# Session state version guard
+# Clears widget state when the app version changes so that Streamlit's
+# internal selectbox/radio serialization format (which changed in 1.41+)
+# never causes a TypeError on rerun after a dependency upgrade.
+# ---------------------------------------------------------------------------
+_APP_STATE_VERSION = "1.45.1"
+
+if st.session_state.get("_app_state_version") != _APP_STATE_VERSION:
+    # Preserve only durable user data keys; drop all widget + UI state
+    _keep = {
+        k: v for k, v in st.session_state.items()
+        if k in {"draft_id", "user_email", "user_name", "demo_mode"}
+    }
+    st.session_state.clear()
+    st.session_state.update(_keep)
+    st.session_state["_app_state_version"] = _APP_STATE_VERSION
+
+
+# ---------------------------------------------------------------------------
 # Mode detection
 # ---------------------------------------------------------------------------
 LIVE_CAPABLE = bool(os.getenv("APIM_BASE_URL"))  # Can we connect to live APIs?
