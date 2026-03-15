@@ -11,10 +11,13 @@ In live mode, a sidebar toggle lets you flip demo data on/off instantly.
 
 import streamlit as st
 import asyncio
+import logging
 import os
 import uuid
-from datetime import date, datetime
-from typing import Any, Coroutine
+from datetime import date, datetime, timedelta
+from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # Set page config as the first Streamlit command
 st.set_page_config(
@@ -159,6 +162,20 @@ from core.utils import set_state, format_error
 
 
 # ---------------------------------------------------------------------------
+# Form state reset helper
+# ---------------------------------------------------------------------------
+def _reset_form_state() -> None:
+    """Clear all guided-form navigation state. Call when entering a new path."""
+    for key in [
+        "gf_tier", "gf_field_idx", "gf_field_status", "gf_dynamic_field_list",
+        "gf_active_panel", "gf_panel_queue", "gf_colleague_handoff",
+        "shared_field_idx", "shared_field_status", "shared_spec",
+        "shared_submission_complete", "shared_draft_loaded",
+    ]:
+        st.session_state.pop(key, None)
+
+
+# ---------------------------------------------------------------------------
 # Draft manager singleton
 # ---------------------------------------------------------------------------
 _draft_manager_instance = None
@@ -205,27 +222,62 @@ def _autosave_draft(role: str = None) -> None:
             except Exception:
                 pass
 
-        draft_id = run_async(dm.save(
-            draft_id=st.session_state.get("draft_id"),
+        _existing_draft_id = st.session_state.get("draft_id")
+        _expected_updated_at = st.session_state.get("draft_updated_at")
+        _save_kwargs = dict(
             user_id=user_id,
             display_name=display_name,
-            spec_dict=spec.dict(),          # Pydantic v1 — use .dict() not .model_dump()
+            spec_dict=spec.dict(),
             ui_state=ui_state,
             step=st.session_state.get("step", "search"),
             chapter=st.session_state.get("chapter", 1),
             path=st.session_state.get("path"),
             owner_role=role,
-        ))
+        )
+        try:
+            from models.draft_manager import ConcurrentEditError
+            if _existing_draft_id and _expected_updated_at:
+                # Existing draft — use optimistic locking
+                draft_id = run_async(dm.save_checked(
+                    draft_id=_existing_draft_id,
+                    expected_updated_at=_expected_updated_at,
+                    **_save_kwargs,
+                ))
+            else:
+                # New draft — plain save
+                draft_id = run_async(dm.save(
+                    draft_id=_existing_draft_id,
+                    **_save_kwargs,
+                ))
+        except ConcurrentEditError:
+            st.warning(
+                "⚠ This draft was updated by another collaborator. "
+                "Reload the page to see the latest version before saving."
+            )
+            logger.warning("Concurrent edit detected on draft %s", _existing_draft_id)
+            draft_id = None
+        except asyncio.TimeoutError:
+            logger.error("run_async call failed: autosave dm.save timed out", exc_info=True)
+            draft_id = None
+        except Exception as _exc:
+            logger.error("run_async call failed: %s", _exc, exc_info=True)
+            draft_id = None
         if draft_id:
             st.session_state.draft_id = draft_id
             st.session_state.last_saved_ts = datetime.now().strftime("%H:%M:%S")
+            st.session_state.draft_updated_at = datetime.now()  # track for optimistic locking
             # Write audit entry
-            run_async(dm.log_action(
-                draft_id=draft_id,
-                action="autosave",
-                user_id=user_id,
-                role=role or st.session_state.get("path", "business"),
-            ))
+            try:
+                run_async(dm.log_action(
+                    draft_id=draft_id,
+                    action="autosave",
+                    user_id=user_id,
+                    role=role or st.session_state.get("path", "business"),
+                ))
+            except asyncio.TimeoutError:
+                logger.error("run_async call failed: autosave dm.log_action timed out", exc_info=True)
+            except Exception as _exc:
+                logger.error("run_async call failed: %s", _exc, exc_info=True)
     except Exception:
         pass  # Never crash on autosave failure
 
@@ -233,13 +285,11 @@ def _autosave_draft(role: str = None) -> None:
 # ---------------------------------------------------------------------------
 # Async helper
 # ---------------------------------------------------------------------------
-def run_async(coro: Coroutine) -> Any:
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    return loop.run_until_complete(coro)
+from core.async_utils import run_async as _core_run_async
+
+def run_async(coro, timeout=15):
+    """Thin wrapper — delegates to core.async_utils.run_async."""
+    return _core_run_async(coro, timeout=timeout)
 
 
 # ---------------------------------------------------------------------------
@@ -283,9 +333,17 @@ def _load_live_valid_options() -> dict:
     """Sync wrapper — call once then cache in st.session_state.live_valid_options."""
     selected = st.session_state.get("selected")
     selected_id = selected.id if selected else None
-    return run_async(
-        _load_live_valid_options_async(st.session_state.collibra_client, selected_id)
-    )
+    try:
+        result = run_async(
+            _load_live_valid_options_async(st.session_state.collibra_client, selected_id)
+        )
+    except asyncio.TimeoutError:
+        st.error("Request timed out. Please try again.")
+        result = None
+    except Exception as _exc:
+        logger.error("run_async call failed: %s", _exc, exc_info=True)
+        result = None
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -355,7 +413,7 @@ def _demo_sample_spec() -> DataProductSpec:
         data_steward_email="marco.silva@firm.com",
         data_steward_name="Marco Silva",
         certifying_officer_email="karen.liu@firm.com",
-        last_certified_date=date(2025, 12, 15),
+        last_certified_date=date.today(),
         regulatory_scope=["GDPR", "SFDR", "EU Taxonomy", "TCFD"],
         geographic_restriction=["EU", "UK", "Switzerland"],
         pii_flag=False,
@@ -437,20 +495,37 @@ def handle_search():
         dm = _get_draft_manager()
         if dm and dm.is_available:
             user_id = os.getenv("USER_EMAIL") or os.getenv("USER_DISPLAY_NAME") or "anonymous"
-            drafts = run_async(dm.list_user_drafts(user_id, limit=5))
+            try:
+                drafts = run_async(dm.list_user_drafts(user_id, limit=5))
+            except asyncio.TimeoutError:
+                st.error("Request timed out. Please try again.")
+                drafts = None
+            except Exception as _exc:
+                logger.error("run_async call failed: %s", _exc, exc_info=True)
+                drafts = None
             if drafts:
                 resumed_id = render_recent_drafts(drafts)
                 if resumed_id:
-                    record = run_async(dm.load(resumed_id))
+                    try:
+                        record = run_async(dm.load(resumed_id))
+                    except asyncio.TimeoutError:
+                        st.error("Request timed out. Please try again.")
+                        record = None
+                    except Exception as _exc:
+                        logger.error("run_async call failed: %s", _exc, exc_info=True)
+                        record = None
                     if record:
                         try:
                             st.session_state.spec = DataProductSpec(**record.spec_dict)
-                        except Exception:
+                        except Exception as exc:
+                            logger.warning("Spec deserialization failed, starting fresh: %s", exc)
                             st.session_state.spec = DataProductSpec(name="", description="", business_purpose="")
+                            st.warning("Some saved fields could not be restored. Please review your draft.")
                         st.session_state.step = record.step
                         st.session_state.chapter = record.chapter
                         st.session_state.path = record.path
                         st.session_state.draft_id = record.draft_id
+                        st.session_state.draft_updated_at = record.updated_at  # for optimistic locking
                         # Restore form navigation state from ui_state
                         if hasattr(record, 'ui_state') and record.ui_state:
                             ui = record.ui_state
@@ -467,12 +542,14 @@ def handle_search():
                             if ui.get("gf_panel_queue") is not None:
                                 st.session_state["gf_panel_queue"] = ui["gf_panel_queue"]
                             # Restore original_spec for remix diff
-                            if ui.get("original_spec_dict"):
-                                try:
+                            try:
+                                _orig_dict = ui.get("original_spec_dict")
+                                if _orig_dict:
                                     from models.data_product import DataProductSpec as _DPS
-                                    st.session_state["original_spec"] = _DPS(**ui["original_spec_dict"])
-                                except Exception:
-                                    pass
+                                    st.session_state["original_spec"] = _DPS(**_orig_dict)
+                            except Exception as exc:
+                                logger.warning("original_spec deserialization failed: %s", exc)
+                                # don't set original_spec — diff view will just show no changes
                         _audit("draft_resumed", f"resumed draft {record.draft_id[:8]}")
                         st.rerun()
 
@@ -493,6 +570,9 @@ def handle_search():
             try:
                 domains = run_async(st.session_state.collibra_client.get_domains())
                 valid_domains = [d.name for d in domains] if domains else None
+            except asyncio.TimeoutError:
+                st.error("Request timed out. Please try again.")
+                domains = None
             except Exception:
                 pass
 
@@ -532,13 +612,34 @@ def handle_search():
                 )
                 _audit("search", f'demo query: "{query}"')
             else:
-                intent = run_async(st.session_state.concierge.interpret_query(query))
-                results = run_async(st.session_state.collibra_client.search_assets(intent.search_terms))
-                narration = run_async(st.session_state.concierge.narrate_results(results, query))
+                try:
+                    intent = run_async(st.session_state.concierge.interpret_query(query))
+                except asyncio.TimeoutError:
+                    st.error("Request timed out. Please try again.")
+                    intent = None
+                except Exception as _exc:
+                    logger.error("run_async call failed: %s", _exc, exc_info=True)
+                    intent = None
+                try:
+                    results = run_async(st.session_state.collibra_client.search_assets(intent.search_terms if intent else []))
+                except asyncio.TimeoutError:
+                    st.error("Request timed out. Please try again.")
+                    results = None
+                except Exception as _exc:
+                    logger.error("run_async call failed: %s", _exc, exc_info=True)
+                    results = None
+                try:
+                    narration = run_async(st.session_state.concierge.narrate_results(results, query))
+                except asyncio.TimeoutError:
+                    st.error("Request timed out. Please try again.")
+                    narration = None
+                except Exception as _exc:
+                    logger.error("run_async call failed: %s", _exc, exc_info=True)
+                    narration = None
                 st.session_state.intent = intent
                 st.session_state.results = results
                 st.session_state.concierge_msg = narration
-                _audit("search", f'live query: "{query}" → {len(results)} results')
+                _audit("search", f'live query: "{query}" → {len(results or [])} results')
             st.session_state.step = "results"
             st.rerun()
 
@@ -558,24 +659,46 @@ def handle_results():
         st.session_state.selected = selected
         st.session_state.path = path
         if path == "reuse":
-            st.session_state.spec = _demo_sample_spec() if _demo_active() else run_async(
-                st.session_state.collibra_client.get_asset_detail(selected.id)
-            )
+            if _demo_active():
+                st.session_state.spec = _demo_sample_spec()
+            else:
+                try:
+                    st.session_state.spec = run_async(
+                        st.session_state.collibra_client.get_asset_detail(selected.id)
+                    )
+                except asyncio.TimeoutError:
+                    st.error("Request timed out. Please try again.")
+                    st.session_state.spec = None
+                except Exception as _exc:
+                    logger.error("run_async call failed: %s", _exc, exc_info=True)
+                    st.session_state.spec = None
             _audit("path_chosen", f"reuse: {selected.name}")
+            _reset_form_state()
             st.session_state.step = "path_a"
         elif path == "remix":
-            _loaded = _demo_sample_spec() if _demo_active() else run_async(
-                st.session_state.collibra_client.get_asset_detail(selected.id)
-            )
+            if _demo_active():
+                _loaded = _demo_sample_spec()
+            else:
+                try:
+                    _loaded = run_async(
+                        st.session_state.collibra_client.get_asset_detail(selected.id)
+                    )
+                except asyncio.TimeoutError:
+                    st.error("Request timed out. Please try again.")
+                    _loaded = None
+                except Exception as _exc:
+                    logger.error("run_async call failed: %s", _exc, exc_info=True)
+                    _loaded = None
             st.session_state.spec = _loaded
             # Snapshot the original so the form can show diffs
-            st.session_state.original_spec = DataProductSpec(**_loaded.dict())
+            st.session_state.original_spec = DataProductSpec(**_loaded.dict()) if _loaded else None
             _audit("path_chosen", f"remix: {selected.name}")
             st.session_state.step = "path_b"
             st.session_state.chapter = 1
         elif path == "create":
             st.session_state.spec = DataProductSpec(name="", description="", business_purpose="")
             _audit("path_chosen", f"create from asset: {selected.name}")
+            _reset_form_state()
             st.session_state.step = "path_c"
             st.session_state.chapter = 1
         st.rerun()
@@ -584,20 +707,32 @@ def handle_results():
     if path == "create" and not selected:
         if not _demo_active() and st.session_state.get("intent"):
             with st.spinner("Drafting a starting point from your search…"):
-                seed = run_async(
-                    st.session_state.concierge.seed_new_product(
-                        st.session_state.query, st.session_state.intent
+                try:
+                    seed = run_async(
+                        st.session_state.concierge.seed_new_product(
+                            st.session_state.query, st.session_state.intent
+                        )
                     )
-                )
+                except asyncio.TimeoutError:
+                    st.error("Request timed out. Please try again.")
+                    seed = None
+                except Exception as _exc:
+                    logger.error("run_async call failed: %s", _exc, exc_info=True)
+                    seed = None
+            seed = seed or {}
             spec = DataProductSpec(
                 name=seed.get("name", ""),
                 description=seed.get("description", ""),
                 business_purpose=seed.get("business_purpose", ""),
             )
             if seed.get("domain"):
-                spec = spec.model_copy(update={"domain": seed["domain"]})
+                d = spec.dict()
+                d["domain"] = seed["domain"]
+                spec = DataProductSpec(**d)
             if seed.get("regulatory_scope"):
-                spec = spec.model_copy(update={"regulatory_scope": seed["regulatory_scope"]})
+                d = spec.dict()
+                d["regulatory_scope"] = seed["regulatory_scope"]
+                spec = DataProductSpec(**d)
             st.session_state.concierge_seeded = True
         else:
             spec = DataProductSpec(name="", description="", business_purpose="")
@@ -605,20 +740,32 @@ def handle_results():
         _audit("path_chosen", "create from scratch")
         st.session_state.spec = spec
         st.session_state.path = "create"
+        _reset_form_state()
         st.session_state.step = "path_c"
         st.session_state.chapter = 1
         st.rerun()
 
 
 def handle_reuse():
-    concierge_msg = (
-        "This looks like an excellent match for what you described. "
-        "All the governance and compliance details are shown below — you can email "
-        "the data owner directly to request access, or if you need to adapt it, "
-        "switch to the remix path."
-    ) if _demo_active() else run_async(
-        st.session_state.concierge.recommend_path(st.session_state.selected, st.session_state.query)
-    ).message
+    if _demo_active():
+        concierge_msg = (
+            "This looks like an excellent match for what you described. "
+            "All the governance and compliance details are shown below — you can email "
+            "the data owner directly to request access, or if you need to adapt it, "
+            "switch to the remix path."
+        )
+    else:
+        try:
+            _recommend = run_async(
+                st.session_state.concierge.recommend_path(st.session_state.selected, st.session_state.query)
+            )
+            concierge_msg = _recommend.message if _recommend else ""
+        except asyncio.TimeoutError:
+            st.error("Request timed out. Please try again.")
+            concierge_msg = ""
+        except Exception as _exc:
+            logger.error("run_async call failed: %s", _exc, exc_info=True)
+            concierge_msg = ""
 
     action = ingredient_label.render(st.session_state.spec, concierge_msg)
 
@@ -768,7 +915,14 @@ def handle_chapter_form(path_label: str):
         field_explanations = _demo_field_explanations()
         valid_options = _demo_valid_options()
     else:
-        concierge_msg = run_async(st.session_state.concierge.introduce_chapter(chapter, chapter_name, st.session_state.spec))
+        try:
+            concierge_msg = run_async(st.session_state.concierge.introduce_chapter(chapter, chapter_name, st.session_state.spec))
+        except asyncio.TimeoutError:
+            st.error("Request timed out. Please try again.")
+            concierge_msg = None
+        except Exception as _exc:
+            logger.error("run_async call failed: %s", _exc, exc_info=True)
+            concierge_msg = None
 
         if "live_valid_options" not in st.session_state:
             with st.spinner("Loading your organisation's data from Collibra…"):
@@ -777,11 +931,18 @@ def handle_chapter_form(path_label: str):
 
         expl_key = f"field_expl_{chapter}"
         if expl_key not in st.session_state:
-            st.session_state[expl_key] = run_async(
-                st.session_state.concierge.explain_chapter_fields(
-                    chapter, chapter_name, st.session_state.spec
+            try:
+                st.session_state[expl_key] = run_async(
+                    st.session_state.concierge.explain_chapter_fields(
+                        chapter, chapter_name, st.session_state.spec
+                    )
                 )
-            )
+            except asyncio.TimeoutError:
+                st.error("Request timed out. Please try again.")
+                st.session_state[expl_key] = None
+            except Exception as _exc:
+                logger.error("run_async call failed: %s", _exc, exc_info=True)
+                st.session_state[expl_key] = None
         field_explanations = st.session_state[expl_key]
 
     updated_spec, nav_action = chapter_form.render_chapter(
@@ -851,7 +1012,14 @@ def handle_handoff():
             f"these can be filled in during the technical review stage."
         )
     else:
-        narrative = run_async(st.session_state.concierge.generate_handoff_narrative(spec))
+        try:
+            narrative = run_async(st.session_state.concierge.generate_handoff_narrative(spec))
+        except asyncio.TimeoutError:
+            st.error("Request timed out. Please try again.")
+            narrative = None
+        except Exception as _exc:
+            logger.error("run_async call failed: %s", _exc, exc_info=True)
+            narrative = None
 
     # DDL preview — shown when schema_location or materialization_type is set
     if _HAS_SNOWFLAKE_PREVIEW and (spec.schema_location or spec.materialization_type):
@@ -866,10 +1034,22 @@ def handle_handoff():
             st.session_state.step = "complete"
             st.rerun()
         else:
-            collibra_id = run_async(st.session_state.collibra_client.create_draft_asset(spec))
-            run_async(st.session_state.postgres.save_session(
-                st.session_state.session_id, spec.dict(), "submitted", collibra_id
-            ))
+            try:
+                collibra_id = run_async(st.session_state.collibra_client.create_draft_asset(spec))
+            except asyncio.TimeoutError:
+                st.error("Request timed out. Please try again.")
+                collibra_id = None
+            except Exception as _exc:
+                logger.error("run_async call failed: %s", _exc, exc_info=True)
+                collibra_id = None
+            try:
+                run_async(st.session_state.postgres.save_session(
+                    st.session_state.session_id, spec.dict(), "submitted", collibra_id
+                ))
+            except asyncio.TimeoutError:
+                st.error("Request timed out. Please try again.")
+            except Exception as _exc:
+                logger.error("run_async call failed: %s", _exc, exc_info=True)
             _audit("submit", f"live submit: {spec.name} → Collibra {collibra_id}")
             st.session_state.collibra_id = collibra_id
             st.session_state.step = "complete"
@@ -891,7 +1071,14 @@ def handle_complete():
             f"You'll receive an email when the review is complete."
         )
     else:
-        completion_msg = run_async(st.session_state.concierge.generate_completion_message(spec))
+        try:
+            completion_msg = run_async(st.session_state.concierge.generate_completion_message(spec))
+        except asyncio.TimeoutError:
+            st.error("Request timed out. Please try again.")
+            completion_msg = None
+        except Exception as _exc:
+            logger.error("run_async call failed: %s", _exc, exc_info=True)
+            completion_msg = None
 
     restart = handoff_summary.render_completion(
         spec, completion_msg, collibra_id, st.session_state.session_id
@@ -899,8 +1086,7 @@ def handle_complete():
 
     if restart:
         _audit("restart", "user started a new session")
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
+        st.session_state.clear()
         st.rerun()
 
 
@@ -909,22 +1095,48 @@ def _handle_shared_draft_url(draft_id: str, role: str) -> None:
     Entry point when a colleague arrives via a shared URL.
     Loads the draft, sets session state, routes to role-scoped form.
     """
+    # Validate role is one of the known roles
+    _VALID_ROLES = {"tech", "owner", "steward", "compliance"}
+    if role not in _VALID_ROLES:
+        st.error(f"Unknown role '{role}'. Valid roles: {', '.join(sorted(_VALID_ROLES))}")
+        return
+
     dm = _get_draft_manager()
     if dm is None or not dm.is_available:
         st.warning("Draft sharing requires a database connection. Running in demo mode.")
         return
     try:
-        record = run_async(dm.get_by_invite_token(draft_id))
+        try:
+            record = run_async(dm.get_by_invite_token(draft_id))
+        except asyncio.TimeoutError:
+            st.error("Request timed out. Please try again.")
+            return
+        except Exception as _exc:
+            logger.error("run_async call failed: %s", _exc, exc_info=True)
+            record = None
         if record is None:
             # Try loading by draft_id directly as fallback
-            record = run_async(dm.load(draft_id))
+            try:
+                record = run_async(dm.load(draft_id))
+            except asyncio.TimeoutError:
+                st.error("Request timed out. Please try again.")
+                return
+            except Exception as _exc:
+                logger.error("run_async call failed: %s", _exc, exc_info=True)
+                record = None
         if record is None:
             st.error("This shared link has expired or the draft was not found.")
             return
 
         # Load spec
-        st.session_state.spec = DataProductSpec(**record.spec_dict)
+        try:
+            st.session_state.spec = DataProductSpec(**record.spec_dict)
+        except Exception as exc:
+            logger.warning("Spec deserialization failed, starting fresh: %s", exc)
+            st.session_state.spec = DataProductSpec(name="", description="", business_purpose="")
+            st.warning("Some saved fields could not be restored. Please review your draft.")
         st.session_state.draft_id = record.draft_id
+        st.session_state.draft_updated_at = record.updated_at  # for optimistic locking
         st.session_state.path = record.path or "remix"
         st.session_state.step = "shared_form"
         st.session_state.shared_role = role
@@ -1217,8 +1429,7 @@ def render_sidebar():
                 with col_yes:
                     if st.button("Yes, restart", key="restart_confirm_yes", use_container_width=True):
                         _audit("restart", "user confirmed start over")
-                        for key in list(st.session_state.keys()):
-                            del st.session_state[key]
+                        st.session_state.clear()
                         st.rerun()
                 with col_no:
                     if st.button("Cancel", key="restart_confirm_no", use_container_width=True):

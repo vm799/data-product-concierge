@@ -6,12 +6,25 @@ governance metadata, technical specs, regulatory info, and action buttons.
 Production-ready with zero mock data.
 """
 
+import html as _html
 import os
 from typing import Optional
 
 import streamlit as st
 
 from models.data_product import DataProductSpec
+
+
+def _safe_url(url: str, allowed_schemes: tuple = ("https", "http")) -> str:
+    """Return url only if scheme is in allowed_schemes, else return empty string."""
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        if parsed.scheme in allowed_schemes and parsed.netloc:
+            return url
+    except Exception:
+        pass
+    return ""
 
 
 
@@ -87,7 +100,7 @@ def render(
     status_class = f"dpc-status-{spec.status.lower()}" if spec.status else "dpc-status-draft"
     status_text = spec.status or "Draft"
     status_badge = f'<span class="dpc-status {status_class}">{status_text}</span>' if spec.status else ""
-    _collibra_base = os.getenv("COLLIBRA_BASE_URL", "").rstrip("/")
+    _collibra_base = _safe_url(os.getenv("COLLIBRA_BASE_URL", "").rstrip("/"))
     collibra_link = (
         f'<a href="{_collibra_base}/assets/{spec.id}" target="_blank" '
         f'style="font-size: 14px; color: var(--teal); text-decoration: none;">🔗 View in Collibra</a>'
@@ -97,7 +110,7 @@ def render(
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; flex-wrap: wrap;">
         <div>
             <h2 style="margin: 0; font-size: 36px; color: var(--text-primary);">
-                {spec.name}
+                {_html.escape(spec.name or "")}
             </h2>
         </div>
         <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">

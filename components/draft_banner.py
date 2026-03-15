@@ -6,6 +6,8 @@ Shows recent drafts on the search page and provides a resume flow.
 
 from typing import List, Optional
 import streamlit as st
+from core.async_utils import run_async
+from core.field_registry import COLLEAGUE_ROLES
 
 
 def render_recent_drafts(drafts: list, on_resume_key: str = "resume_draft_id") -> Optional[str]:
@@ -108,55 +110,26 @@ def render_share_panel(
         st.caption("Save your draft first to get a shareable link.")
         return
 
-    # Role definitions
+    # Role definitions — derived from canonical registry
     roles = [
         {
-            "key": "tech",
-            "label": "Data Engineer",
-            "icon": "⚡",
-            "description": "Target systems, DPRO, Critical Data Elements",
-            "fields": ["target_systems", "target_dpro", "critical_data_elements"],
-        },
-        {
-            "key": "owner",
-            "label": "Data Owner",
-            "icon": "🔒",
-            "description": "Access procedure, licensing, governing body",
-            "fields": ["access_procedure", "data_licensing_flag", "governing_body"],
-        },
-        {
-            "key": "steward",
-            "label": "Data Steward",
-            "icon": "👥",
-            "description": "Domain owner, custodian, release date",
-            "fields": ["data_domain_owner_email", "data_custodian_email", "expected_release_date"],
-        },
-        {
-            "key": "compliance",
-            "label": "Compliance Officer",
-            "icon": "📊",
-            "description": "Business terms, latency, history, publishing",
-            "fields": ["business_terms", "data_latency", "data_history_from"],
-        },
+            "key": role_key,
+            "label": meta["label"],
+            "icon": meta["icon"],
+            "description": meta["description"],
+            "fields": meta["preview_fields"],
+        }
+        for role_key, meta in COLLEAGUE_ROLES.items()
     ]
 
     # Compute invite token (async) — try to get/create from DraftManager
     invite_token = draft_id  # fallback: use draft_id directly as token
     try:
         from models.draft_manager import DraftManager
-        import asyncio
-
-        def _run(coro):
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-            return loop.run_until_complete(coro)
 
         dm = DraftManager()
         if dm.is_available:
-            tok = _run(dm.create_invite_token(draft_id))
+            tok = run_async(dm.create_invite_token(draft_id))
             if tok:
                 invite_token = tok
     except Exception:

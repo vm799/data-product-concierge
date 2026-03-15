@@ -845,7 +845,7 @@ def _render_field_card(
             # Email fields — validate format before advancing
             if field_name in _EMAIL_FIELDS and raw_value and raw_value.strip():
                 import re
-                if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", raw_value.strip()):
+                if not re.match(r"^[\w.%+\-]+@[\w.\-]+\.[a-zA-Z]{2,}$", raw_value.strip()):
                     st.error("Please enter a valid email address (e.g. name@company.com)")
                     return updated_spec, "idle"  # Don't advance, show error
 

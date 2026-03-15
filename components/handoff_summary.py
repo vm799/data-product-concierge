@@ -18,6 +18,7 @@ import urllib.parse
 from datetime import date
 from typing import Optional
 from models.data_product import DataProductSpec
+from core.async_utils import run_async
 
 
 
@@ -488,19 +489,10 @@ def render(
         with st.expander("📋 Audit trail", expanded=False):
             try:
                 from models.draft_manager import DraftManager
-                import asyncio
-
-                def _run_audit(coro):
-                    try:
-                        loop = asyncio.get_event_loop()
-                    except RuntimeError:
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                    return loop.run_until_complete(coro)
 
                 dm = DraftManager()
                 if dm.is_available:
-                    entries = _run_audit(dm.get_audit_log(draft_id, limit=50))
+                    entries = run_async(dm.get_audit_log(draft_id, limit=50))
                     if entries:
                         for entry in entries:
                             ts = entry["ts"].strftime("%d %b %H:%M") if hasattr(entry["ts"], "strftime") else str(entry["ts"])

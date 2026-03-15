@@ -795,3 +795,54 @@ def get_field_meta(field_name: str) -> dict:
         "collibra_source": "",
         "collibra_endpoint": "",
     })
+
+
+# ---------------------------------------------------------------------------
+# CANONICAL ROLE REGISTRY — single source of truth for colleague roles
+# Used by: shared_draft_entry.py, draft_banner.py, handoff_summary.py
+# ---------------------------------------------------------------------------
+
+COLLEAGUE_ROLES = {
+    "tech": {
+        "label": "Data Engineer",
+        "icon": "⚡",
+        "description": (
+            "You've been asked to fill the technical depth fields for this data product — "
+            "target systems, DPRO mapping, and Critical Data Elements."
+        ),
+        "fields": GUIDED_PANEL_TECH_DEPTH,
+        "preview_fields": ["target_systems", "target_dpro", "critical_data_elements"],
+    },
+    "owner": {
+        "label": "Data Owner",
+        "icon": "🔒",
+        "description": (
+            "You've been asked to fill the access and licensing details — "
+            "how to request access, any restrictions, and the governing body."
+        ),
+        "fields": GUIDED_PANEL_ACCESS_LICENSING,
+        "preview_fields": ["access_procedure", "data_licensing_flag", "governing_body"],
+    },
+    "steward": {
+        "label": "Data Steward",
+        "icon": "👥",
+        "description": (
+            "You've been asked to fill the extended ownership fields — "
+            "domain owner, data custodian, expected release date, and business capability."
+        ),
+        "fields": GUIDED_PANEL_EXTENDED_OWNERSHIP,
+        "preview_fields": ["data_domain_owner_email", "data_custodian_email", "expected_release_date"],
+    },
+    "compliance": {
+        "label": "Compliance Officer",
+        "icon": "📊",
+        "description": (
+            "You've been asked to fill the data detail fields — "
+            "business terms, release notes, latency, history depth, and publishing schedule."
+        ),
+        "fields": GUIDED_PANEL_DATA_DETAIL,
+        "preview_fields": ["business_terms", "data_latency", "data_history_from"],
+    },
+}
+
+VALID_ROLES = set(COLLEAGUE_ROLES.keys())

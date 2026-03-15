@@ -9,47 +9,14 @@ On submit, their answers are written back to the shared draft in Postgres.
 import streamlit as st
 from typing import Optional
 from models.data_product import DataProductSpec
+from core.async_utils import run_async as _run
 from core.field_registry import (
-    GUIDED_PANEL_ACCESS_LICENSING,
-    GUIDED_PANEL_EXTENDED_OWNERSHIP,
-    GUIDED_PANEL_DATA_DETAIL,
-    GUIDED_PANEL_TECH_DEPTH,
+    COLLEAGUE_ROLES,
+    VALID_ROLES,
     get_field_meta,
     FIELD_STATUS_ANSWERED,
     FIELD_STATUS_SKIPPED,
 )
-
-# ============================================================================
-# ROLE MAPPINGS
-# ============================================================================
-
-_ROLE_TO_FIELDS = {
-    "tech": GUIDED_PANEL_TECH_DEPTH,
-    "owner": GUIDED_PANEL_ACCESS_LICENSING,
-    "steward": GUIDED_PANEL_EXTENDED_OWNERSHIP,
-    "compliance": GUIDED_PANEL_DATA_DETAIL,
-}
-
-_ROLE_LABELS = {
-    "tech": "Data Engineer",
-    "owner": "Data Owner",
-    "steward": "Data Steward",
-    "compliance": "Compliance Officer",
-}
-
-_ROLE_DESCRIPTIONS = {
-    "tech": "You've been asked to fill the technical depth fields for this data product — target systems, DPRO mapping, and Critical Data Elements.",
-    "owner": "You've been asked to fill the access and licensing details — how to request access, any restrictions, and the governing body.",
-    "steward": "You've been asked to fill the extended ownership fields — domain owner, data custodian, expected release date, and business capability.",
-    "compliance": "You've been asked to fill the data detail fields — business terms, release notes, latency, history depth, and publishing schedule.",
-}
-
-_ROLE_ICONS = {
-    "tech": "⚡",
-    "owner": "🔒",
-    "steward": "👥",
-    "compliance": "📊",
-}
 
 # Fields that use boolean (Yes/No) widget
 _BOOL_FIELDS = {"pii_flag", "data_licensing_flag", "data_sovereignty_flag"}
@@ -150,16 +117,6 @@ def _save_back_to_draft(spec, field_status, fields_for_role, draft_id, role):
                 "Please copy your answers and send them to the spec owner."
             )
             return
-
-        import asyncio
-
-        def _run(coro):
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-            return loop.run_until_complete(coro)
 
         # Load the existing draft to merge
         existing = _run(dm.load(draft_id))
@@ -328,14 +285,15 @@ def render_shared_draft_entry(
         draft_id: The shared draft ID to write answers back to
     """
     # 1. Normalise role
-    if role not in _ROLE_TO_FIELDS:
+    if role not in VALID_ROLES:
         role = "tech"
 
     # 2. Resolve role metadata
-    icon = _ROLE_ICONS.get(role, "📋")
-    role_label = _ROLE_LABELS.get(role, role.title())
-    description = _ROLE_DESCRIPTIONS.get(role, "")
-    fields_for_role = _ROLE_TO_FIELDS[role]
+    role_meta = COLLEAGUE_ROLES[role]
+    icon = role_meta.get("icon", "📋")
+    role_label = role_meta.get("label", role.title())
+    description = role_meta.get("description", "")
+    fields_for_role = role_meta["fields"]
 
     # 2. Show welcome header
     st.html(
@@ -438,15 +396,20 @@ def render_shared_draft_entry(
         ):
             # Coerce raw_value to the right type and assign to spec
             coerced = _coerce_value(field_name, raw_value)
+            _validation_error = None
             try:
                 setattr(working_spec, field_name, coerced)
-            except Exception:
-                pass  # validation error — still mark answered with whatever was set
-            field_status[field_name] = FIELD_STATUS_ANSWERED
-            st.session_state["shared_spec"] = working_spec
-            st.session_state["shared_field_status"] = field_status
-            st.session_state["shared_field_idx"] = field_idx + 1
-            st.rerun()
+            except Exception as exc:
+                _validation_error = str(exc)
+
+            if _validation_error:
+                st.error(f"Invalid value: {_validation_error}")
+            else:
+                field_status[field_name] = FIELD_STATUS_ANSWERED
+                st.session_state["shared_spec"] = working_spec
+                st.session_state["shared_field_status"] = field_status
+                st.session_state["shared_field_idx"] = field_idx + 1
+                st.rerun()
 
 
 # ============================================================================

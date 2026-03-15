@@ -33,18 +33,31 @@ Usage:
     entries = await dm.get_audit_log(draft_id)
 """
 
+import asyncio
 import json
+import logging
 import os
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+logger = logging.getLogger(__name__)
+
 try:
     import asyncpg
     HAS_ASYNCPG = True
 except ImportError:
     HAS_ASYNCPG = False
+
+
+# ---------------------------------------------------------------------------
+# Exceptions
+# ---------------------------------------------------------------------------
+
+class ConcurrentEditError(Exception):
+    """Raised when optimistic locking detects a concurrent edit."""
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +125,25 @@ class DraftManager:
         );
         CREATE INDEX IF NOT EXISTS idx_audit_draft_id ON data_product_audit_log(draft_id);
         CREATE INDEX IF NOT EXISTS idx_audit_ts ON data_product_audit_log(ts DESC);
+    """
+
+    UPSERT_CHECKED_SQL = """
+        INSERT INTO data_product_drafts
+            (draft_id, user_id, display_name, spec_json, ui_state, step, chapter, path, status, owner_role, updated_at)
+        VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8, $9, $10, NOW())
+        ON CONFLICT (draft_id) DO UPDATE SET
+            user_id       = EXCLUDED.user_id,
+            display_name  = EXCLUDED.display_name,
+            spec_json     = EXCLUDED.spec_json,
+            ui_state      = EXCLUDED.ui_state,
+            step          = EXCLUDED.step,
+            chapter       = EXCLUDED.chapter,
+            path          = EXCLUDED.path,
+            status        = EXCLUDED.status,
+            owner_role    = EXCLUDED.owner_role,
+            updated_at    = NOW()
+        WHERE data_product_drafts.updated_at <= $11
+        RETURNING draft_id::text, updated_at;
     """
 
     UPSERT_SQL = """
@@ -189,13 +221,22 @@ class DraftManager:
         if not self._available:
             return None
         if self._pool is None:
-            try:
-                self._pool = await asyncpg.create_pool(self._dsn, min_size=1, max_size=5)
-                async with self._pool.acquire() as conn:
-                    await conn.execute(self.CREATE_TABLE_SQL)
-            except Exception:
-                self._pool = None
-                self._available = False
+            for _attempt in range(3):
+                try:
+                    self._pool = await asyncio.wait_for(
+                        asyncpg.create_pool(self._dsn, min_size=1, max_size=5, command_timeout=10),
+                        timeout=15,
+                    )
+                    async with self._pool.acquire() as conn:
+                        await conn.execute(self.CREATE_TABLE_SQL)
+                    break  # success
+                except Exception as exc:
+                    logger.warning("Pool creation attempt %d failed: %s", _attempt + 1, exc)
+                    if _attempt == 2:
+                        self._pool = None
+                        self._available = False
+                    else:
+                        await asyncio.sleep(0.5)
         return self._pool
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -235,7 +276,8 @@ class DraftManager:
                     step, chapter, path, status, owner_role,
                 )
                 return row["draft_id"] if row else did
-        except Exception:
+        except Exception as exc:
+            logger.error("DraftManager.save failed: %s", exc, exc_info=True)
             return None
 
     async def load(self, draft_id: str) -> Optional[DraftRecord]:
@@ -266,7 +308,7 @@ class DraftManager:
                 draft_id=row["draft_id"],
                 user_id=row["user_id"],
                 display_name=row["display_name"],
-                spec_dict=dict(row["spec_json"]) if row["spec_json"] else {},
+                spec_dict=self.validate_spec_json(dict(row["spec_json"]) if row["spec_json"] else {}),
                 ui_state=ui_state,
                 step=row["step"],
                 chapter=row["chapter"],
@@ -277,7 +319,8 @@ class DraftManager:
                 invite_token=invite_token,
                 owner_role=owner_role,
             )
-        except Exception:
+        except Exception as exc:
+            logger.error("DraftManager.load failed: %s", exc, exc_info=True)
             return None
 
     async def list_user_drafts(
@@ -301,7 +344,7 @@ class DraftManager:
                     draft_id=r["draft_id"],
                     user_id=r["user_id"],
                     display_name=r["display_name"],
-                    spec_dict=dict(r["spec_json"]) if r["spec_json"] else {},
+                    spec_dict=self.validate_spec_json(dict(r["spec_json"]) if r["spec_json"] else {}),
                     ui_state=dict(json.loads(r["ui_state"])) if r["ui_state"] else {},
                     step=r["step"],
                     chapter=r["chapter"],
@@ -314,7 +357,8 @@ class DraftManager:
                 )
                 for r in rows
             ]
-        except Exception:
+        except Exception as exc:
+            logger.error("DraftManager.list_user_drafts failed: %s", exc, exc_info=True)
             return []
 
     async def delete(self, draft_id: str) -> bool:
@@ -327,7 +371,8 @@ class DraftManager:
             async with pool.acquire() as conn:
                 await conn.execute(self.DELETE_SQL, did)
             return True
-        except Exception:
+        except Exception as exc:
+            logger.error("DraftManager.delete failed: %s", exc, exc_info=True)
             return False
 
     async def create_invite_token(self, draft_id: str) -> Optional[str]:
@@ -352,7 +397,8 @@ class DraftManager:
             async with pool.acquire() as conn:
                 row = await conn.fetchrow(sql, did, token)
             return row["invite_token"] if row else None
-        except Exception:
+        except Exception as exc:
+            logger.error("DraftManager.create_invite_token failed: %s", exc, exc_info=True)
             return None
 
     async def get_by_invite_token(self, token: str) -> Optional[DraftRecord]:
@@ -380,7 +426,7 @@ class DraftManager:
                 draft_id=row["draft_id"],
                 user_id=row["user_id"],
                 display_name=row["display_name"],
-                spec_dict=dict(row["spec_json"]) if row["spec_json"] else {},
+                spec_dict=self.validate_spec_json(dict(row["spec_json"]) if row["spec_json"] else {}),
                 ui_state=dict(row["ui_state"]) if row["ui_state"] else {},
                 step=row["step"],
                 chapter=row["chapter"],
@@ -391,7 +437,8 @@ class DraftManager:
                 invite_token=row["invite_token"],
                 owner_role=row["owner_role"],
             )
-        except Exception:
+        except Exception as exc:
+            logger.error("DraftManager.get_by_invite_token failed: %s", exc, exc_info=True)
             return None
 
     async def log_action(
@@ -420,8 +467,8 @@ class DraftManager:
                                    field_name,
                                    str(old_value)[:500] if old_value is not None else None,
                                    str(new_value)[:500] if new_value is not None else None)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.error("DraftManager.log_action failed: %s", exc, exc_info=True)
 
     async def get_audit_log(self, draft_id: str, limit: int = 100) -> List[Dict[str, Any]]:
         """Return recent audit entries for a draft, newest first."""
@@ -439,8 +486,136 @@ class DraftManager:
             async with pool.acquire() as conn:
                 rows = await conn.fetch(sql, did, limit)
             return [dict(r) for r in rows]
-        except Exception:
+        except Exception as exc:
+            logger.error("DraftManager.get_audit_log failed: %s", exc, exc_info=True)
             return []
+
+    async def save_with_audit(
+        self,
+        draft_id: Optional[str],
+        user_id: Optional[str],
+        display_name: str,
+        spec_dict: Dict[str, Any],
+        step: str = "search",
+        chapter: int = 1,
+        path: Optional[str] = None,
+        status: str = "draft",
+        ui_state: Optional[Dict[str, Any]] = None,
+        owner_role: Optional[str] = None,
+        audit_action: str = "draft_saved",
+        audit_field: Optional[str] = None,
+    ) -> Optional[str]:
+        """Atomically save draft and log audit action in one transaction."""
+        pool = await self._get_pool()
+        if pool is None:
+            return None
+
+        did = str(uuid.UUID(draft_id)) if draft_id else str(uuid.uuid4())
+        spec_json = json.dumps(spec_dict, default=str)
+        ui_state_json = json.dumps(ui_state or {}, default=str)
+
+        audit_sql = """
+            INSERT INTO data_product_audit_log
+                (draft_id, user_id, role, action, field_name)
+            VALUES ($1::uuid, $2, $3, $4, $5);
+        """
+        try:
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    row = await conn.fetchrow(
+                        self.UPSERT_SQL,
+                        did, user_id, display_name, spec_json, ui_state_json,
+                        step, chapter, path, status, owner_role,
+                    )
+                    await conn.execute(
+                        audit_sql, did, user_id, owner_role, audit_action, audit_field
+                    )
+            return row["draft_id"] if row else did
+        except Exception as exc:
+            logger.error("save_with_audit failed for draft %s: %s", did[:8], exc, exc_info=True)
+            return None
+
+    async def save_checked(
+        self,
+        draft_id: str,
+        user_id: Optional[str],
+        display_name: str,
+        spec_dict: Dict[str, Any],
+        expected_updated_at: datetime,
+        step: str = "search",
+        chapter: int = 1,
+        path: Optional[str] = None,
+        status: str = "draft",
+        ui_state: Optional[Dict[str, Any]] = None,
+        owner_role: Optional[str] = None,
+    ) -> Optional[str]:
+        """
+        Save with optimistic locking. Returns draft_id on success,
+        raises ConcurrentEditError if another write has occurred since expected_updated_at.
+        """
+        pool = await self._get_pool()
+        if pool is None:
+            return None
+
+        did = str(uuid.UUID(draft_id))
+        spec_json = json.dumps(spec_dict, default=str)
+        ui_state_json = json.dumps(ui_state or {}, default=str)
+
+        try:
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    self.UPSERT_CHECKED_SQL,
+                    did, user_id, display_name, spec_json, ui_state_json,
+                    step, chapter, path, status, owner_role,
+                    expected_updated_at,
+                )
+            if row is None:
+                raise ConcurrentEditError(
+                    f"Draft {did[:8]} was modified by another user. Reload to see the latest version."
+                )
+            return row["draft_id"]
+        except ConcurrentEditError:
+            raise
+        except Exception as exc:
+            logger.error("save_checked failed for draft %s: %s", did[:8], exc, exc_info=True)
+            return None
+
+    @staticmethod
+    def validate_spec_json(spec_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Lightly validate and clean a spec dict loaded from Postgres.
+        Removes keys with None values; coerces known list fields to lists.
+        Returns cleaned dict.
+        """
+        list_fields = {
+            "source_systems", "consumer_teams", "tags", "regulatory_scope",
+            "geographic_restriction", "lineage_upstream", "lineage_downstream",
+            "target_systems", "critical_data_elements", "business_terms",
+            "data_subject_areas", "related_reports", "column_definitions",
+            "business_rules",
+        }
+        cleaned = {}
+        for k, v in spec_dict.items():
+            if v is None:
+                continue
+            if k in list_fields and isinstance(v, str):
+                # Coerce comma-separated strings back to lists (legacy data)
+                cleaned[k] = [i.strip() for i in v.split(",") if i.strip()]
+            else:
+                cleaned[k] = v
+        return cleaned
+
+    async def is_healthy(self) -> bool:
+        """Quick health check — returns True if pool is alive."""
+        pool = await self._get_pool()
+        if pool is None:
+            return False
+        try:
+            async with pool.acquire() as conn:
+                await conn.fetchval("SELECT 1")
+            return True
+        except Exception:
+            return False
 
     @property
     def is_available(self) -> bool:
