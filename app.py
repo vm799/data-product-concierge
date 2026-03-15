@@ -428,6 +428,15 @@ def handle_search():
                         _audit("draft_resumed", f"resumed draft {record.draft_id[:8]}")
                         st.rerun()
 
+    # Welcome heading — always shown on the search/home page
+    st.markdown(
+        '<h1 style="font-size:2.2rem;font-weight:700;color:#0D1B2A;margin-bottom:.25rem;line-height:1.2;">'
+        'Welcome to your <span style="color:#006B73;">Data Product Concierge</span></h1>'
+        '<p style="font-size:1rem;color:#5B6A7E;margin-top:0;margin-bottom:1.75rem;">'
+        'Find governed data products, or register a new one in minutes.</p>',
+        unsafe_allow_html=True,
+    )
+
     if _HAS_INTAKE:
         working_spec = st.session_state.get("spec") or DataProductSpec(name="", description="", business_purpose="")
 
@@ -867,8 +876,8 @@ def render_sidebar():
     with st.sidebar:
         # ── Wordmark ──────────────────────────────────────────────────────────
         st.markdown(
-            '<p style="color:#4DD9C0;font-size:1.1rem;font-weight:700;letter-spacing:.05em;margin-bottom:0;">✦ Data Product</p>'
-            '<p style="color:#FFFFFF;font-size:.85rem;margin-top:0;opacity:.6;">Concierge</p>',
+            '<p style="color:#4DD9C0;font-size:1.5rem;font-weight:700;letter-spacing:.04em;margin-bottom:0;line-height:1.2;">✦ Data Product</p>'
+            '<p style="color:#FFFFFF;font-size:1.05rem;margin-top:2px;opacity:.65;letter-spacing:.06em;font-weight:300;">Concierge</p>',
             unsafe_allow_html=True,
         )
         st.markdown('<hr style="border-color:rgba(77,217,192,.2);margin:0.5rem 0 1rem;">', unsafe_allow_html=True)

@@ -334,6 +334,79 @@ class DataProductSpec(BaseModel):
     )
 
     # --------
+    # MATURITY PANEL A — ACCESS & LICENSING (L0 gaps)
+    # --------
+    access_procedure: Optional[str] = Field(
+        None, description="How consumers should request access to this data product"
+    )
+    data_licensing_flag: Optional[bool] = Field(
+        None, description="Whether data licensing restrictions apply"
+    )
+    data_licensing_details: Optional[str] = Field(
+        None, description="Description of data licensing restrictions (if applicable)"
+    )
+    data_sovereignty_flag: Optional[bool] = Field(
+        None, description="Whether data sovereignty restrictions apply (which national law governs this data)"
+    )
+    data_sovereignty_details: Optional[str] = Field(
+        None, description="Details of data sovereignty restrictions (if applicable)"
+    )
+    data_subject_areas: Optional[List[str]] = Field(
+        None, description="Data subject areas covered (required when PII flag is True)"
+    )
+    governing_body: Optional[str] = Field(
+        None, description="Governance forum or body that oversees this data product"
+    )
+
+    # --------
+    # MATURITY PANEL B — EXTENDED OWNERSHIP (L1)
+    # --------
+    data_domain_owner_email: Optional[EmailStr] = Field(
+        None, description="Domain-level owner above this product (data domain owner)"
+    )
+    data_custodian_email: Optional[EmailStr] = Field(
+        None, description="Data custodian responsible for technical accountability"
+    )
+    expected_release_date: Optional[date] = Field(
+        None, description="Expected go-live date for this data product"
+    )
+    business_capability: Optional[str] = Field(
+        None, description="Business capability this data product enables"
+    )
+
+    # --------
+    # MATURITY PANEL C — DATA DETAIL (L1-L2)
+    # --------
+    business_terms: Optional[List[str]] = Field(
+        None, description="Business glossary terms that apply to this data product"
+    )
+    release_notes: Optional[str] = Field(
+        None, description="Release notes or change log for this version"
+    )
+    data_latency: Optional[str] = Field(
+        None, description="Typical delay from source capture to data availability"
+    )
+    data_history_from: Optional[date] = Field(
+        None, description="How far back historical data goes (earliest available date)"
+    )
+    data_publishing_time: Optional[str] = Field(
+        None, description="Time of day data is typically published (e.g. 06:00 UTC)"
+    )
+
+    # --------
+    # MATURITY PANEL D — TECH DEPTH (L2, colleague handoff)
+    # --------
+    target_systems: Optional[List[str]] = Field(
+        None, description="Downstream systems this data product feeds into"
+    )
+    target_dpro: Optional[str] = Field(
+        None, description="Target Collibra DPRO (Data Product Registration Object) this maps to"
+    )
+    critical_data_elements: Optional[List[str]] = Field(
+        None, description="Critical Data Element (CDE) designations for this product"
+    )
+
+    # --------
     # METADATA
     # --------
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -422,6 +495,29 @@ class DataProductSpec(BaseModel):
         "delivery_method",
         "review_cycle",
         "incident_contact",
+        # Panel A — Access & Licensing
+        "access_procedure",
+        "data_licensing_flag",
+        "data_licensing_details",
+        "data_sovereignty_flag",
+        "data_sovereignty_details",
+        "data_subject_areas",
+        "governing_body",
+        # Panel B — Extended Ownership
+        "data_domain_owner_email",
+        "data_custodian_email",
+        "expected_release_date",
+        "business_capability",
+        # Panel C — Data Detail
+        "business_terms",
+        "release_notes",
+        "data_latency",
+        "data_history_from",
+        "data_publishing_time",
+        # Panel D — Tech Depth
+        "target_systems",
+        "target_dpro",
+        "critical_data_elements",
     }
 
     # --------
@@ -538,10 +634,20 @@ class DataProductSpec(BaseModel):
             if self.data_steward_email:
                 md += f" ({self.data_steward_email})"
             md += "\n\n"
+        if self.data_domain_owner_email:
+            md += f"**Domain Owner:** {self.data_domain_owner_email}\n\n"
+        if self.data_custodian_email:
+            md += f"**Data Custodian:** {self.data_custodian_email}\n\n"
+        if self.governing_body:
+            md += f"**Governing Body:** {self.governing_body}\n\n"
         if self.certifying_officer_email:
             md += f"**Certifying Officer:** {self.certifying_officer_email}\n\n"
         if self.last_certified_date:
             md += f"**Last Certified:** {self.last_certified_date.isoformat()}\n\n"
+        if self.expected_release_date:
+            md += f"**Expected Release:** {self.expected_release_date.isoformat()}\n\n"
+        if self.business_capability:
+            md += f"**Business Capability:** {self.business_capability}\n\n"
 
         # ---- CLASSIFICATION & COMPLIANCE ----
         md += "## Classification & Compliance\n\n"
@@ -553,11 +659,21 @@ class DataProductSpec(BaseModel):
             md += f"**Classification:** {self.data_classification}\n\n"
         if self.pii_flag is not None:
             md += f"**Contains PII:** {'Yes' if self.pii_flag else 'No'}\n\n"
+        if self.data_subject_areas:
+            md += f"**Data Subject Areas:** {', '.join(self.data_subject_areas)}\n\n"
         if self.regulatory_scope:
             scope_str = ", ".join(self.regulatory_scope)
             md += f"**Regulatory Scope:** {scope_str}\n\n"
         if self.geographic_restriction:
             md += f"**Geographic Restrictions:** {', '.join(self.geographic_restriction)}\n\n"
+        if self.data_sovereignty_flag is not None:
+            md += f"**Data Sovereignty Applies:** {'Yes' if self.data_sovereignty_flag else 'No'}\n\n"
+        if self.data_sovereignty_details:
+            md += f"**Sovereignty Details:** {self.data_sovereignty_details}\n\n"
+        if self.data_licensing_flag is not None:
+            md += f"**Licensing Restrictions:** {'Yes' if self.data_licensing_flag else 'No'}\n\n"
+        if self.data_licensing_details:
+            md += f"**Licensing Details:** {self.data_licensing_details}\n\n"
         if self.encryption_standard:
             md += f"**Encryption Standard:** {self.encryption_standard}\n\n"
         if self.retention_period:
@@ -585,6 +701,18 @@ class DataProductSpec(BaseModel):
             md += f"**Upstream Dependencies:** {', '.join(self.lineage_upstream)}\n\n"
         if self.lineage_downstream:
             md += f"**Downstream Consumers:** {', '.join(self.lineage_downstream)}\n\n"
+        if self.target_systems:
+            md += f"**Target Systems:** {', '.join(self.target_systems)}\n\n"
+        if self.target_dpro:
+            md += f"**Target DPRO:** {self.target_dpro}\n\n"
+        if self.critical_data_elements:
+            md += f"**Critical Data Elements:** {', '.join(self.critical_data_elements)}\n\n"
+        if self.data_latency:
+            md += f"**Data Latency:** {self.data_latency}\n\n"
+        if self.data_history_from:
+            md += f"**Historical Data From:** {self.data_history_from.isoformat()}\n\n"
+        if self.data_publishing_time:
+            md += f"**Publishing Time:** {self.data_publishing_time}\n\n"
         if self.data_quality_score is not None:
             md += f"**Data Quality Score:** {self.data_quality_score:.2f}/100\n\n"
 
@@ -601,10 +729,16 @@ class DataProductSpec(BaseModel):
         md += "## Business Context\n\n"
         if self.business_criticality:
             md += f"**Business Criticality:** {self.business_criticality}\n\n"
+        if self.business_terms:
+            md += f"**Business Terms:** {', '.join(self.business_terms)}\n\n"
+        if self.release_notes:
+            md += f"**Release Notes:** {self.release_notes}\n\n"
         if self.cost_centre:
             md += f"**Cost Centre:** {self.cost_centre}\n\n"
         if self.related_reports:
             md += f"**Related Reports:** {', '.join(self.related_reports)}\n\n"
+        if self.access_procedure:
+            md += f"**Access Procedure:** {self.access_procedure}\n\n"
         if self.delivery_method:
             md += f"**Delivery Method:** {self.delivery_method}\n\n"
         if self.review_cycle:
@@ -890,6 +1024,29 @@ class DataProductSpec(BaseModel):
             "delivery_method",
             "review_cycle",
             "incident_contact",
+            # Panel A
+            "access_procedure",
+            "data_licensing_flag",
+            "data_licensing_details",
+            "data_sovereignty_flag",
+            "data_sovereignty_details",
+            "data_subject_areas",
+            "governing_body",
+            # Panel B
+            "data_domain_owner_email",
+            "data_custodian_email",
+            "expected_release_date",
+            "business_capability",
+            # Panel C
+            "business_terms",
+            "release_notes",
+            "data_latency",
+            "data_history_from",
+            "data_publishing_time",
+            # Panel D
+            "target_systems",
+            "target_dpro",
+            "critical_data_elements",
             "created_at",
             "updated_at",
         ]
@@ -957,6 +1114,29 @@ class DataProductSpec(BaseModel):
             format_value(self.delivery_method),
             format_value(self.review_cycle),
             format_value(self.incident_contact),
+            # Panel A
+            format_value(self.access_procedure),
+            format_value(self.data_licensing_flag),
+            format_value(self.data_licensing_details),
+            format_value(self.data_sovereignty_flag),
+            format_value(self.data_sovereignty_details),
+            format_value(self.data_subject_areas),
+            format_value(self.governing_body),
+            # Panel B
+            format_value(self.data_domain_owner_email),
+            format_value(self.data_custodian_email),
+            format_value(self.expected_release_date),
+            format_value(self.business_capability),
+            # Panel C
+            format_value(self.business_terms),
+            format_value(self.release_notes),
+            format_value(self.data_latency),
+            format_value(self.data_history_from),
+            format_value(self.data_publishing_time),
+            # Panel D
+            format_value(self.target_systems),
+            format_value(self.target_dpro),
+            format_value(self.critical_data_elements),
             format_value(self.created_at),
             format_value(self.updated_at),
         ]

@@ -8,6 +8,7 @@ spec one field at a time, with a live preview on the right.
 import json
 import urllib.parse
 from datetime import date, datetime
+from typing import Optional
 
 import streamlit as st
 
@@ -18,6 +19,10 @@ from core.field_registry import (
     GUIDED_BUSINESS_OPTIONAL,
     GUIDED_TECH_FIELDS,
     GUIDED_AUTO_FIELDS,
+    GUIDED_PANEL_ACCESS_LICENSING,
+    GUIDED_PANEL_EXTENDED_OWNERSHIP,
+    GUIDED_PANEL_DATA_DETAIL,
+    GUIDED_PANEL_TECH_DEPTH,
     get_field_meta,
     FIELD_STATUS_ANSWERED,
     FIELD_STATUS_PENDING,
@@ -26,6 +31,30 @@ from core.field_registry import (
     FIELD_STATUS_AUTO,
 )
 from components.styles import render_guidance
+
+
+# ---------------------------------------------------------------------------
+# CONTEXTUAL INJECTION RULES
+# Mapping: (field_name, trigger_value) → fields to inject immediately after
+# trigger_value=None means: inject regardless of the answered value
+# ---------------------------------------------------------------------------
+
+_CONTEXTUAL_INJECTIONS = {
+    # pii_flag=Yes → inject data_subject_areas right after
+    ("pii_flag", "Yes — contains PII"): ["data_subject_areas"],
+    # access_level=Request-based → inject access_procedure right after
+    ("access_level", "Request-based"): ["access_procedure"],
+    # data_classification=Confidential or Restricted → inject data_sovereignty_flag
+    ("data_classification", "Confidential"): ["data_sovereignty_flag"],
+    ("data_classification", "Restricted"): ["data_sovereignty_flag"],
+}
+
+_PANEL_KEY_TO_FIELDS = {
+    "panel_access_licensing": GUIDED_PANEL_ACCESS_LICENSING,
+    "panel_extended_ownership": GUIDED_PANEL_EXTENDED_OWNERSHIP,
+    "panel_data_detail": GUIDED_PANEL_DATA_DETAIL,
+    "panel_tech_depth": GUIDED_PANEL_TECH_DEPTH,
+}
 
 
 def _scroll_top() -> None:
@@ -54,6 +83,10 @@ _LIST_FIELDS = {
     "lineage_downstream",
     "column_definitions",
     "related_reports",
+    "data_subject_areas",
+    "business_terms",
+    "target_systems",
+    "critical_data_elements",
 }
 
 # Fields that take an email text input
@@ -70,6 +103,23 @@ _TEXTAREA_FIELDS = {
     "business_purpose",
     "sample_query",
     "explanation",
+    "access_procedure",
+    "data_licensing_details",
+    "data_sovereignty_details",
+    "release_notes",
+}
+
+# Date input fields beyond last_certified_date
+_DATE_FIELDS = {
+    "last_certified_date",
+    "expected_release_date",
+    "data_history_from",
+}
+
+# Boolean flag fields rendered as radio (Yes/No)
+_BOOL_FLAG_FIELDS = {
+    "data_licensing_flag",
+    "data_sovereignty_flag",
 }
 
 
@@ -84,6 +134,8 @@ def _init_session_state(spec: DataProductSpec) -> None:
         st.session_state["gf_field_idx"] = 0
         st.session_state["gf_field_status"] = {}
         st.session_state["gf_show_optional_prompt"] = False
+        st.session_state["gf_dynamic_field_list"] = list(GUIDED_BUSINESS_REQUIRED)
+        st.session_state["gf_active_panel"] = None  # panel key or None
 
     # Pre-populate answered status for fields already set on the spec (remix/intake seeding)
     field_status: dict = st.session_state["gf_field_status"]
@@ -129,6 +181,22 @@ def _render_widget(field_name: str, meta: dict, current_value, valid_options: di
             key=widget_key,
         )
 
+    # --- Generic boolean flag fields (Yes/No radio) ---
+    if field_name in _BOOL_FLAG_FIELDS:
+        label_yes = "Yes"
+        label_no = "No"
+        if current_value is True:
+            default_idx = 0
+        else:
+            default_idx = 1
+        return st.radio(
+            "",
+            [label_yes, label_no],
+            index=default_idx,
+            horizontal=True,
+            key=widget_key,
+        )
+
     # --- Selectbox fields ---
     if effective_options:
         current_str = str(current_value) if current_value is not None else None
@@ -144,7 +212,7 @@ def _render_widget(field_name: str, meta: dict, current_value, valid_options: di
         )
 
     # --- Date input ---
-    if field_name == "last_certified_date":
+    if field_name in _DATE_FIELDS:
         if isinstance(current_value, (date, datetime)):
             default_date = current_value if isinstance(current_value, date) else current_value.date()
         else:
@@ -212,7 +280,10 @@ def _assign_value(spec: DataProductSpec, field_name: str, raw_value) -> DataProd
     if field_name == "pii_flag":
         spec_dict[field_name] = raw_value == "Yes — contains PII"
 
-    elif field_name == "last_certified_date":
+    elif field_name in _BOOL_FLAG_FIELDS:
+        spec_dict[field_name] = raw_value == "Yes"
+
+    elif field_name in _DATE_FIELDS:
         spec_dict[field_name] = raw_value  # already a date object from st.date_input
 
     elif field_name in _LIST_FIELDS:
@@ -620,6 +691,18 @@ def _render_field_card(
             updated_spec = _assign_value(spec, field_name, raw_value)
             field_status[field_name] = FIELD_STATUS_ANSWERED
             st.session_state["gf_field_status"] = field_status
+
+            # --- Contextual injection: inject extra fields after this one ---
+            if tier == 1:
+                dynamic_list = st.session_state.get("gf_dynamic_field_list", list(GUIDED_BUSINESS_REQUIRED))
+                for (trigger_field, trigger_val), inject_fields in _CONTEXTUAL_INJECTIONS.items():
+                    if trigger_field == field_name and str(raw_value) == trigger_val:
+                        insert_pos = field_idx + 1
+                        for extra_field in reversed(inject_fields):
+                            if extra_field not in dynamic_list:
+                                dynamic_list.insert(insert_pos, extra_field)
+                st.session_state["gf_dynamic_field_list"] = dynamic_list
+
             st.session_state["gf_field_idx"] = field_idx + 1
             _scroll_top()
             action = "continue"
@@ -652,17 +735,21 @@ def render_guided_form(
     if valid_options is None:
         valid_options = {}
 
+    from components.maturity_dashboard import render_maturity_dashboard
+
     # Initialise session state
     _init_session_state(spec)
 
     tier: int = st.session_state.get("gf_tier", 1)
     field_idx: int = st.session_state.get("gf_field_idx", 0)
     field_status: dict = st.session_state.get("gf_field_status", {})
-    show_optional_prompt: bool = st.session_state.get("gf_show_optional_prompt", False)
+    active_panel: Optional[str] = st.session_state.get("gf_active_panel", None)
 
     # Determine current field list
     if tier == 1:
-        field_list = GUIDED_BUSINESS_REQUIRED
+        field_list = st.session_state.get("gf_dynamic_field_list", list(GUIDED_BUSINESS_REQUIRED))
+    elif active_panel and active_panel in _PANEL_KEY_TO_FIELDS:
+        field_list = _PANEL_KEY_TO_FIELDS[active_panel]
     else:
         field_list = GUIDED_BUSINESS_OPTIONAL
 
@@ -681,17 +768,53 @@ def render_guided_form(
         _render_spec_preview(spec, field_status, current_field)
 
     with left_col:
-        # --- Tier 1 complete: show crossroads card ---
-        if tier == 1 and field_idx >= total:
-            action = _render_crossroads_card(spec, tier, field_idx)
-            return spec, action
+        # --- Tier 1 complete: show maturity dashboard ---
+        if tier == 1 and field_idx >= total and active_panel is None:
+            dashboard_action = render_maturity_dashboard(spec, field_status)
+            if dashboard_action == "summary":
+                return spec, "handoff"
+            elif dashboard_action == "fill_all":
+                # Queue all panels in order, start first
+                all_keys = [p["key"] for p in __import__(
+                    "components.maturity_dashboard", fromlist=["_PANELS"]
+                )._PANELS]
+                st.session_state["gf_panel_queue"] = all_keys[1:]  # remainder after first
+                st.session_state["gf_active_panel"] = all_keys[0]
+                st.session_state["gf_field_idx"] = 0
+                st.rerun()
+            elif dashboard_action is not None and dashboard_action in _PANEL_KEY_TO_FIELDS:
+                st.session_state["gf_panel_queue"] = []  # single panel only
+                st.session_state["gf_active_panel"] = dashboard_action
+                st.session_state["gf_field_idx"] = 0
+                st.rerun()
+            return spec, "idle"
 
-        # --- Tier 2 complete: show handoff prompt ---
-        if tier == 2 and field_idx >= total:
+        # --- Panel complete: advance queue or return to dashboard ---
+        if active_panel and field_idx >= total:
+            panel_queue = st.session_state.get("gf_panel_queue", [])
+            if panel_queue:
+                # Auto-advance to next queued panel
+                next_panel = panel_queue[0]
+                st.session_state["gf_panel_queue"] = panel_queue[1:]
+                st.session_state["gf_active_panel"] = next_panel
+                st.session_state["gf_field_idx"] = 0
+            else:
+                st.session_state["gf_active_panel"] = None
+                st.session_state["gf_field_idx"] = total  # keep tier 1 "complete" state
+            st.rerun()
+
+        # --- Tier 2 complete (old optional flow, kept for backward compat): ---
+        if tier == 2 and field_idx >= total and active_panel is None:
             action = _render_optional_complete_card(tier, field_idx)
             return spec, action
 
         # --- Normal field card ---
+        tier_label_override = None
+        if active_panel:
+            panel_meta = next((p for p in __import__("components.maturity_dashboard", fromlist=["_PANELS"])._PANELS if p["key"] == active_panel), None)
+            if panel_meta:
+                tier_label_override = f"Enhancement · {panel_meta['title']}"
+
         updated_spec, action = _render_field_card(
             spec=spec,
             path=path,
@@ -702,8 +825,7 @@ def render_guided_form(
             field_status=field_status,
         )
 
-        # If we just advanced past tier 1 last field, flip to crossroads on next render
-        # (field_idx was already incremented inside _render_field_card)
+        # If we just advanced past tier 1 last field, flip to dashboard on next render
         new_field_idx: int = st.session_state.get("gf_field_idx", 0)
         if tier == 1 and new_field_idx >= total and action in ("continue",):
             st.session_state["gf_show_optional_prompt"] = True

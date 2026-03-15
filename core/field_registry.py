@@ -464,6 +464,244 @@ FIELD_REGISTRY = {
         "required": False,
         "can_be_na": True,
     },
+    # ========================================================================
+    # PANEL A — ACCESS & LICENSING (L0 gaps)
+    # ========================================================================
+    "access_procedure": {
+        "label": "Access Procedure",
+        "owner": "business",
+        "collibra_source": "Asset attribute (Data Product Access Procedure)",
+        "collibra_endpoint": "GET /assets/{id}/attributes → type='Access Procedure'",
+        "question": "How should someone request access to this data product? Describe the steps or link to the access request form.",
+        "explanation": "A clear access procedure lets consumers self-serve. Without it, teams email the owner directly — creating bottlenecks and inconsistent approvals.",
+        "options": [],
+        "required": False,
+        "can_be_na": True,
+        "na_label": "Access is managed directly by the data owner",
+    },
+    "data_licensing_flag": {
+        "label": "Licensing Restrictions Apply",
+        "owner": "business",
+        "collibra_source": "Vocabulary domain (data_licensing vocab)",
+        "collibra_endpoint": "GET /assets/{id}/attributes → type='Data Licensing Restrictions Applied'",
+        "question": "Are there data licensing restrictions on this product? (e.g. vendor data that limits redistribution or use cases)",
+        "explanation": "Licensing restrictions prevent legal exposure. Bloomberg, MSCI, and similar vendor data often restricts internal redistribution. This flag triggers a legal review before downstream use.",
+        "options": ["Yes", "No"],
+        "required": False,
+        "can_be_na": False,
+    },
+    "data_licensing_details": {
+        "label": "Licensing Restriction Details",
+        "owner": "business",
+        "collibra_source": "Asset attribute (Data Licensing Restriction Details)",
+        "collibra_endpoint": "GET /assets/{id}/attributes → type='Data Licensing Restriction Details'",
+        "question": "Describe the licensing restrictions — which vendor, what limits apply, and which use cases are excluded.",
+        "explanation": "The details help downstream teams understand exactly what they can and cannot do with this data. Be specific: e.g. 'Bloomberg Terminal data — internal use only, no redistribution, no derived products for external clients.'",
+        "options": [],
+        "required": False,
+        "can_be_na": True,
+        "na_label": "Not applicable",
+    },
+    "data_sovereignty_flag": {
+        "label": "Sovereignty Restrictions Apply",
+        "owner": "business",
+        "collibra_source": "Vocabulary domain (data_sovereignty vocab)",
+        "collibra_endpoint": "GET /assets/{id}/attributes → type='Data Sovereignty Restrictions Apply'",
+        "question": "Are there data sovereignty restrictions — i.e. does the law of a specific country govern how this data is handled?",
+        "explanation": "Data sovereignty is distinct from geographic storage restrictions. Sovereignty determines *which country's law* governs the data (e.g. EU GDPR applies even if the data is stored in a UK data centre). Common for cross-border transfers.",
+        "options": ["Yes", "No"],
+        "required": False,
+        "can_be_na": False,
+    },
+    "data_sovereignty_details": {
+        "label": "Sovereignty Restriction Details",
+        "owner": "business",
+        "collibra_source": "Asset attribute (Data Sovereignty Restriction Details)",
+        "collibra_endpoint": "GET /assets/{id}/attributes → type='Data Sovereignty Restriction Details'",
+        "question": "Which country's law applies and what restrictions does it impose on this data?",
+        "explanation": "E.g. 'Subject to EU GDPR — data subject rights apply; cross-border transfers require Standard Contractual Clauses.' Be specific so legal can verify compliance.",
+        "options": [],
+        "required": False,
+        "can_be_na": True,
+        "na_label": "Not applicable",
+    },
+    "data_subject_areas": {
+        "label": "Data Subject Areas",
+        "owner": "business",
+        "collibra_source": "Linked Asset (Data Subject Area type in Collibra)",
+        "collibra_endpoint": "GET /assets/{id}/relations → filter type='Data Subject Area'",
+        "question": "Which categories of data subjects does this product cover? E.g. Employees, Clients, Counterparties, Individual Investors.",
+        "explanation": "Data subject areas are required for GDPR Article 30 records of processing activities. They determine which rights (access, erasure, portability) apply to this product.",
+        "options": ["Employees", "Clients", "Individual Investors", "Counterparties", "Prospects", "Fund Managers", "Retail Clients", "Professional Clients"],
+        "required": False,
+        "can_be_na": True,
+        "na_label": "Does not contain personal data",
+    },
+    "governing_body": {
+        "label": "Governing Body",
+        "owner": "business",
+        "collibra_source": "Linked Asset (Governing Body asset type in Collibra)",
+        "collibra_endpoint": "GET /assets/{id}/relations → filter type='Governing Body'",
+        "question": "Which governance committee or forum oversees this data product? E.g. Data Governance Council, ESG Data Steering Group, Risk Data Committee.",
+        "explanation": "Linking a governing body enables escalation paths and ensures the right stakeholders are notified during certification reviews or regulatory enquiries.",
+        "options": [],
+        "required": False,
+        "can_be_na": True,
+        "na_label": "No formal governing body assigned",
+    },
+    # ========================================================================
+    # PANEL B — EXTENDED OWNERSHIP (L1)
+    # ========================================================================
+    "data_domain_owner_email": {
+        "label": "Domain Owner Email",
+        "owner": "business",
+        "collibra_source": "Asset responsibility (Domain Owner role)",
+        "collibra_endpoint": "GET /assets/{id}/responsibilities → role='Data Domain Owner' → user.email",
+        "question": "Who is the domain-level owner above this data product? This is typically a Chief Data Officer, Head of Data, or domain lead.",
+        "explanation": "The domain owner sits above individual product owners and provides strategic oversight for the whole domain. They resolve conflicts between products and set domain-wide policies.",
+        "options": [],
+        "required": False,
+        "can_be_na": True,
+        "na_label": "Same as data owner / not separately assigned",
+    },
+    "data_custodian_email": {
+        "label": "Data Custodian Email",
+        "owner": "tech",
+        "collibra_source": "Asset responsibility (Data Custodian role)",
+        "collibra_endpoint": "GET /assets/{id}/responsibilities → role='Data Custodian' → user.email",
+        "question": "Who is technically responsible for the storage, processing, and access controls of this data? (Data Custodian)",
+        "explanation": "The custodian is accountable for the physical and technical implementation — ensuring secure storage, appropriate backups, and access controls are in place. Distinct from the steward (quality) and owner (accountability).",
+        "options": [],
+        "required": False,
+        "can_be_na": True,
+        "na_label": "Covered by the data steward",
+    },
+    "expected_release_date": {
+        "label": "Expected Release Date",
+        "owner": "business",
+        "collibra_source": "Asset attribute (Expected Release Date)",
+        "collibra_endpoint": "GET /assets/{id}/attributes → type='Expected Release Date'",
+        "question": "When is this data product expected to go live in production? (YYYY-MM-DD)",
+        "explanation": "The release date appears in Collibra so consuming teams can plan their integration work and downstream dependencies accordingly.",
+        "options": [],
+        "required": False,
+        "can_be_na": True,
+        "na_label": "Release date not yet defined",
+    },
+    "business_capability": {
+        "label": "Business Capability",
+        "owner": "business",
+        "collibra_source": "Linked Asset (Business Capability asset type in Collibra)",
+        "collibra_endpoint": "GET /assets/{id}/relations → filter type='Business Capability'",
+        "question": "Which business capability does this data product enable? E.g. ESG Reporting, Portfolio Risk Analytics, Client Onboarding, Regulatory Disclosure.",
+        "explanation": "Linking to a business capability connects the data product to the firm's capability map, enabling impact analysis and supporting architecture reviews.",
+        "options": [],
+        "required": False,
+        "can_be_na": True,
+        "na_label": "Not mapped to a capability",
+    },
+    # ========================================================================
+    # PANEL C — DATA DETAIL (L1-L2)
+    # ========================================================================
+    "business_terms": {
+        "label": "Business Terms",
+        "owner": "business",
+        "collibra_source": "Linked Asset (Business Term asset type — Business Term Glossary)",
+        "collibra_endpoint": "GET /assets/{id}/relations → filter type='Business Term'",
+        "question": "Which business terms from the glossary apply to this data product? E.g. 'Net Asset Value', 'Carbon Intensity', 'AUM'.",
+        "explanation": "Linking business terms creates a connection between the data product and the corporate glossary. This helps analysts discover the product when searching by business concept.",
+        "options": [],
+        "required": False,
+        "can_be_na": True,
+        "na_label": "No specific terms linked",
+    },
+    "release_notes": {
+        "label": "Release Notes",
+        "owner": "business",
+        "collibra_source": "Asset attribute (Release Notes)",
+        "collibra_endpoint": "GET /assets/{id}/attributes → type='Release Notes'",
+        "question": "Are there any release notes or change log entries for this version of the data product?",
+        "explanation": "Release notes inform downstream consumers of what changed between versions — new fields, breaking schema changes, deprecated columns. Essential for consumers who rely on stable schemas.",
+        "options": [],
+        "required": False,
+        "can_be_na": True,
+        "na_label": "First version — no prior releases",
+    },
+    "data_latency": {
+        "label": "Data Latency",
+        "owner": "tech",
+        "collibra_source": "Asset attribute (Data Latency)",
+        "collibra_endpoint": "GET /assets/{id}/attributes → type='Data Latency'",
+        "question": "What is the typical delay between data being captured at source and being available in this product? E.g. 'Under 5 minutes', '15-30 minutes', 'T+1 day'.",
+        "explanation": "Latency is critical for time-sensitive use cases like intraday risk monitoring or real-time client reporting. Consumers need to know if they're looking at live or stale data.",
+        "options": [],
+        "required": False,
+        "can_be_na": True,
+        "na_label": "Latency not measured",
+    },
+    "data_history_from": {
+        "label": "Historical Data From",
+        "owner": "tech",
+        "collibra_source": "Asset attribute (Data History From Date)",
+        "collibra_endpoint": "GET /assets/{id}/attributes → type='Data History'",
+        "question": "How far back does the historical data in this product go? Enter the earliest available date. (YYYY-MM-DD)",
+        "explanation": "History depth determines whether backtesting and historical reporting are possible. Some regulatory calculations (e.g. SFDR PAI) require 3+ years of history.",
+        "options": [],
+        "required": False,
+        "can_be_na": True,
+        "na_label": "History depth not determined",
+    },
+    "data_publishing_time": {
+        "label": "Publishing Time",
+        "owner": "tech",
+        "collibra_source": "Asset attribute (Data Publishing Time)",
+        "collibra_endpoint": "GET /assets/{id}/attributes → type='Data Publishing Time'",
+        "question": "At what time of day is data typically published and available? E.g. '06:00 UTC', 'By 09:30 London time', 'Within 1 hour of market close'.",
+        "explanation": "Publishing time helps downstream teams schedule their jobs. Knowing that data arrives at 06:00 UTC means reports can be scheduled for 06:30 with confidence.",
+        "options": [],
+        "required": False,
+        "can_be_na": True,
+        "na_label": "No fixed publishing schedule",
+    },
+    # ========================================================================
+    # PANEL D — TECH DEPTH (L2, colleague handoff expansion)
+    # ========================================================================
+    "target_systems": {
+        "label": "Target Systems",
+        "owner": "tech",
+        "collibra_source": "Linked Asset (Target System relations in Collibra)",
+        "collibra_endpoint": "GET /assets/{id}/relations → filter type='Target System'",
+        "question": "Which downstream systems consume or are fed by this data product? E.g. Tableau Server, Bloomberg AIM, Axioma Risk, SFDR reporting platform.",
+        "explanation": "Target systems complement downstream lineage. They identify the *systems* (vs. the logical data products) that depend on this product, enabling infrastructure impact analysis.",
+        "options": [],
+        "required": False,
+        "can_be_na": True,
+        "na_label": "Target systems not yet identified",
+    },
+    "target_dpro": {
+        "label": "Target DPRO",
+        "owner": "tech",
+        "collibra_source": "Linked Asset (Data Product Registration Object in Collibra)",
+        "collibra_endpoint": "GET /assets/{id}/relations → filter type='Target DPRO'",
+        "question": "What is the Collibra Data Product Registration Object (DPRO) that this data product maps to?",
+        "explanation": "The DPRO is the canonical Collibra registration record for a data product. Linking here ensures the business spec and technical asset are reconciled in governance.",
+        "options": [],
+        "required": False,
+        "can_be_na": True,
+        "na_label": "DPRO not yet assigned",
+    },
+    "critical_data_elements": {
+        "label": "Critical Data Elements",
+        "owner": "tech",
+        "collibra_source": "Linked Asset (CDE designations in Collibra)",
+        "collibra_endpoint": "GET /assets/{id}/relations → filter type='Critical Data Element'",
+        "question": "Which fields or columns in this data product have been designated as Critical Data Elements (CDEs)? List the column names.",
+        "explanation": "CDEs are the most business-critical fields that require enhanced data quality monitoring and governance. BCBS 239 requires banks to identify and monitor CDEs across risk data. List each CDE on a separate line.",
+        "options": [],
+        "required": False,
+        "can_be_na": True,
+        "na_label": "No CDEs designated",
+    },
 }
 
 # ============================================================================
@@ -494,6 +732,40 @@ GUIDED_TECH_FIELDS = [
 ]
 
 GUIDED_AUTO_FIELDS = ["id", "created_at", "updated_at", "status", "data_quality_score"]
+
+# ============================================================================
+# MATURITY ENHANCEMENT PANEL FIELD LISTS
+# ============================================================================
+
+GUIDED_PANEL_ACCESS_LICENSING = [
+    "access_procedure",
+    "data_licensing_flag",
+    "data_licensing_details",
+    "data_sovereignty_flag",
+    "data_sovereignty_details",
+    "governing_body",
+]
+
+GUIDED_PANEL_EXTENDED_OWNERSHIP = [
+    "data_domain_owner_email",
+    "data_custodian_email",
+    "expected_release_date",
+    "business_capability",
+]
+
+GUIDED_PANEL_DATA_DETAIL = [
+    "business_terms",
+    "release_notes",
+    "data_latency",
+    "data_history_from",
+    "data_publishing_time",
+]
+
+GUIDED_PANEL_TECH_DEPTH = [
+    "target_systems",
+    "target_dpro",
+    "critical_data_elements",
+]
 
 # ============================================================================
 # FIELD STATUS CONSTANTS

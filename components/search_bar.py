@@ -18,7 +18,7 @@ def render_hero():
             - submitted: True if "Find Data Products" button was clicked
     """
 
-    html = '<div style="text-align: center; padding: 2rem;"><h1 style="color: #0D1B2A; font-size: 2.5rem; margin-bottom: 1rem;">Data Product Concierge</h1><p style="color: #5B6A7E; font-size: 1.2rem; margin-bottom: 2rem;">Find, reuse, or create governed data products</p><div style="background: #F0F4F8; padding: 1.5rem; border-radius: 16px; max-width: 600px; margin: 0 auto; text-align: left;">Welcome! I\'m your Data Product Concierge. Tell me what data you\'re looking for — describe it in your own words, and I\'ll find the best match in our catalogue.</div></div>'
+    html = '<div style="background: #F0F4F8; padding: 1.25rem 1.5rem; border-radius: 12px; max-width: 640px; color: #5B6A7E; font-size: .95rem; line-height: 1.55; margin-bottom: 1.25rem;">Tell me what data you\'re looking for — describe it in your own words, and I\'ll find the best match in our catalogue.</div>'
 
     st.html(html)
     query = st.text_input(

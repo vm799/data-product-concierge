@@ -119,8 +119,14 @@ def render(
         overview_fields.append(_render_ingredient_field("Description", spec.description))
     if spec.business_purpose:
         overview_fields.append(_render_ingredient_field("Business Purpose", spec.business_purpose))
+    if spec.business_capability:
+        overview_fields.append(_render_ingredient_field("Business Capability", spec.business_capability))
     if spec.version:
         overview_fields.append(_render_ingredient_field("Version", spec.version))
+    if spec.release_notes:
+        overview_fields.append(_render_ingredient_field("Release Notes", spec.release_notes))
+    if spec.business_terms:
+        overview_fields.append(_render_ingredient_field("Business Terms", ", ".join(spec.business_terms)))
     if overview_fields:
         ingredient_sections.append(_render_ingredient_section(
             "OVERVIEW",
@@ -159,6 +165,12 @@ def render(
         if spec.data_steward_email:
             steward_str += f" ({spec.data_steward_email})"
         governance_fields.append(_render_ingredient_field("Data Steward", steward_str))
+    if spec.data_domain_owner_email:
+        governance_fields.append(_render_ingredient_field("Domain Owner", spec.data_domain_owner_email))
+    if spec.data_custodian_email:
+        governance_fields.append(_render_ingredient_field("Data Custodian", spec.data_custodian_email))
+    if spec.governing_body:
+        governance_fields.append(_render_ingredient_field("Governing Body", spec.governing_body))
     if spec.certifying_officer_email:
         governance_fields.append(_render_ingredient_field(
             "Certifying Officer",
@@ -168,6 +180,11 @@ def render(
         governance_fields.append(_render_ingredient_field(
             "Certification Date",
             spec.last_certified_date.isoformat(),
+        ))
+    if spec.expected_release_date:
+        governance_fields.append(_render_ingredient_field(
+            "Expected Release",
+            spec.expected_release_date.isoformat(),
         ))
     if governance_fields:
         ingredient_sections.append(_render_ingredient_section(
@@ -183,9 +200,27 @@ def render(
     if spec.geographic_restriction:
         geo_str = ", ".join(spec.geographic_restriction)
         regulatory_fields.append(_render_ingredient_field("Geographic Restrictions", geo_str))
+    if spec.data_sovereignty_flag is not None:
+        sov_str = "Yes" if spec.data_sovereignty_flag else "No"
+        regulatory_fields.append(_render_ingredient_field("Data Sovereignty Applies", sov_str))
+    if spec.data_sovereignty_details:
+        regulatory_fields.append(_render_ingredient_field(
+            "Sovereignty Details", spec.data_sovereignty_details
+        ))
+    if spec.data_licensing_flag is not None:
+        lic_str = "Yes" if spec.data_licensing_flag else "No"
+        regulatory_fields.append(_render_ingredient_field("Licensing Restrictions", lic_str))
+    if spec.data_licensing_details:
+        regulatory_fields.append(_render_ingredient_field(
+            "Licensing Details", spec.data_licensing_details
+        ))
     if spec.pii_flag is not None:
         pii_str = "Yes" if spec.pii_flag else "No"
         regulatory_fields.append(_render_ingredient_field("Contains PII", pii_str))
+    if spec.data_subject_areas:
+        regulatory_fields.append(_render_ingredient_field(
+            "Data Subject Areas", ", ".join(spec.data_subject_areas)
+        ))
     if spec.encryption_standard:
         regulatory_fields.append(_render_ingredient_field(
             "Encryption Standard",
@@ -195,6 +230,11 @@ def render(
         regulatory_fields.append(_render_ingredient_field(
             "Retention Period",
             spec.retention_period,
+        ))
+    if spec.access_procedure:
+        regulatory_fields.append(_render_ingredient_field(
+            "Access Procedure",
+            spec.access_procedure,
         ))
     if regulatory_fields:
         ingredient_sections.append(_render_ingredient_section(
@@ -231,6 +271,26 @@ def render(
     if spec.lineage_downstream:
         downstream_str = ", ".join(spec.lineage_downstream)
         technical_fields.append(_render_ingredient_field("Downstream Consumers", downstream_str))
+    if spec.target_systems:
+        technical_fields.append(_render_ingredient_field(
+            "Target Systems", ", ".join(spec.target_systems)
+        ))
+    if spec.target_dpro:
+        technical_fields.append(_render_ingredient_field(
+            "Target DPRO", spec.target_dpro, is_code=True
+        ))
+    if spec.critical_data_elements:
+        technical_fields.append(_render_ingredient_field(
+            "Critical Data Elements", ", ".join(spec.critical_data_elements)
+        ))
+    if spec.data_latency:
+        technical_fields.append(_render_ingredient_field("Data Latency", spec.data_latency))
+    if spec.data_history_from:
+        technical_fields.append(_render_ingredient_field(
+            "Historical Data From", spec.data_history_from.isoformat()
+        ))
+    if spec.data_publishing_time:
+        technical_fields.append(_render_ingredient_field("Publishing Time", spec.data_publishing_time))
     if technical_fields:
         ingredient_sections.append(_render_ingredient_section(
             "TECHNICAL",
@@ -295,42 +355,49 @@ def render(
     """
     st.html(action_html)
 
-    col1, col2, col3 = st.columns(3)
-
     action = None
+
+    # Primary actions — equal 2-col row
+    col1, col2 = st.columns(2, gap="small")
 
     with col1:
         if st.button(
             "✉ Email the Data Owner",
             use_container_width=True,
+            type="primary",
             key="action_email",
         ):
             action = "email"
 
     with col2:
-        if st.button("📋 View access request template", use_container_width=True, key="action_copy"):
-            owner_email = spec.data_owner_email or "data-owner@company.com"
-            product_name = spec.name or "this data product"
-            template = (
-                f"To: {owner_email}\n"
-                f"Subject: Access Request — {product_name}\n\n"
-                f"Hi,\n\n"
-                f"I would like to request access to the '{product_name}' data product "
-                f"(Domain: {spec.domain or 'TBC'}, Classification: {spec.data_classification or 'TBC'}).\n\n"
-                f"Intended use: [please describe your use case]\n"
-                f"Team / cost centre: [your team name]\n"
-                f"Required by: [date]\n\n"
-                f"Thank you"
-            )
-            st.code(template, language=None)
-            action = "copy"
-
-    with col3:
         if st.button(
-            "✂ Actually, I need to adapt this",
+            "✂ Adapt this product",
             use_container_width=True,
+            type="secondary",
             key="action_remix",
         ):
             action = "remix"
+
+    # Secondary action — full width, clearly subordinate
+    if st.button(
+        "📋 View access request template",
+        use_container_width=True,
+        key="action_copy",
+    ):
+        owner_email = spec.data_owner_email or "data-owner@company.com"
+        product_name = spec.name or "this data product"
+        template = (
+            f"To: {owner_email}\n"
+            f"Subject: Access Request — {product_name}\n\n"
+            f"Hi,\n\n"
+            f"I would like to request access to the '{product_name}' data product "
+            f"(Domain: {spec.domain or 'TBC'}, Classification: {spec.data_classification or 'TBC'}).\n\n"
+            f"Intended use: [please describe your use case]\n"
+            f"Team / cost centre: [your team name]\n"
+            f"Required by: [date]\n\n"
+            f"Thank you"
+        )
+        st.code(template, language=None)
+        action = "copy"
 
     return action

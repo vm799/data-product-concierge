@@ -321,16 +321,15 @@ def inject_styles():
        Tier 3 default   = neutral chip (chooseable options, toggles)
        ============================================================================ */
 
-    /* TIER 3: Default (no type) — neutral selectable chip
-       Used for: regulatory pills, domain options, "Build your own", any toggle */
+    /* TIER 3: Default (no type) — light grey chip, clearly not primary/secondary */
     .stButton button,
     .stButton > button {
-        background-color: #FFFFFF !important;
-        color: var(--text-primary) !important;
-        border: 1.5px solid rgba(13,27,42,0.15) !important;
+        background-color: #F0F2F5 !important;
+        color: var(--text-secondary) !important;
+        border: 1.5px solid rgba(13,27,42,0.12) !important;
         border-radius: var(--radius-sm) !important;
-        padding: 10px 20px !important;
-        font-size: 14px !important;
+        padding: 8px 16px !important;
+        font-size: 13px !important;
         font-weight: 500 !important;
         cursor: pointer !important;
         transition: all 0.15s ease !important;
@@ -339,17 +338,18 @@ def inject_styles():
         text-transform: none !important;
         box-shadow: none !important;
         min-height: 40px !important;
+        white-space: normal !important;
     }
 
     .stButton button p,
     .stButton > button p {
-        color: var(--text-primary) !important;
+        color: var(--text-secondary) !important;
         font-weight: 500 !important;
     }
 
     .stButton button:hover,
     .stButton > button:hover {
-        background-color: rgba(0,194,203,0.06) !important;
+        background-color: rgba(0,194,203,0.08) !important;
         border-color: var(--teal) !important;
         color: var(--teal-d) !important;
         transform: none !important;
@@ -370,40 +370,47 @@ def inject_styles():
     }
 
     /* ============================================================================
-       PRIMARY CTA BUTTONS — dark teal, decisively different from pill/accent teal
+       PRIMARY CTA BUTTONS — dark teal filled
+       Use *contains* selector to match both baseButton-primary & stBaseButton-primary
        ============================================================================ */
-    [data-testid="baseButton-primary"],
-    button[data-testid="baseButton-primary"] {
+    .stButton > button[data-testid*="primary"],
+    .stButton button[data-testid*="primary"],
+    button[data-testid*="primary"] {
         background-color: #006B73 !important;
         color: #FFFFFF !important;
         border: none !important;
         font-weight: 600 !important;
+        font-size: 13px !important;
         letter-spacing: 0.01em !important;
-        box-shadow: 0 2px 10px rgba(0, 107, 115, 0.35) !important;
+        box-shadow: 0 2px 8px rgba(0, 107, 115, 0.30) !important;
         transition: background-color 0.15s ease, box-shadow 0.15s ease !important;
     }
 
-    [data-testid="baseButton-primary"] p,
-    button[data-testid="baseButton-primary"] p {
+    .stButton > button[data-testid*="primary"] p,
+    .stButton button[data-testid*="primary"] p,
+    button[data-testid*="primary"] p {
         color: #FFFFFF !important;
         font-weight: 600 !important;
     }
 
-    [data-testid="baseButton-primary"]:hover,
-    button[data-testid="baseButton-primary"]:hover {
+    .stButton > button[data-testid*="primary"]:hover,
+    .stButton button[data-testid*="primary"]:hover,
+    button[data-testid*="primary"]:hover {
         background-color: #005960 !important;
         color: #FFFFFF !important;
-        box-shadow: 0 4px 18px rgba(0, 107, 115, 0.50) !important;
+        box-shadow: 0 4px 16px rgba(0, 107, 115, 0.45) !important;
     }
 
-    [data-testid="baseButton-primary"]:hover p,
-    button[data-testid="baseButton-primary"]:hover p {
+    .stButton > button[data-testid*="primary"]:hover p,
+    .stButton button[data-testid*="primary"]:hover p,
+    button[data-testid*="primary"]:hover p {
         color: #FFFFFF !important;
     }
 
-    /* Disabled primary buttons — clearly not clickable */
-    [data-testid="baseButton-primary"]:disabled,
-    button[data-testid="baseButton-primary"]:disabled {
+    /* Disabled primary */
+    .stButton > button[data-testid*="primary"]:disabled,
+    .stButton button[data-testid*="primary"]:disabled,
+    button[data-testid*="primary"]:disabled {
         background-color: rgba(0, 107, 115, 0.30) !important;
         color: rgba(255, 255, 255, 0.5) !important;
         box-shadow: none !important;
@@ -411,37 +418,39 @@ def inject_styles():
     }
 
     /* ============================================================================
-       SECONDARY BUTTONS — ghost style (teal outline, transparent bg)
-       Higher specificity (.stButton + attribute) beats the broad .stButton button rule above.
+       SECONDARY BUTTONS — teal outline, transparent bg
+       Contains selector for robustness across Streamlit versions.
        ============================================================================ */
-    .stButton button[data-testid="baseButton-secondary"],
-    .stButton > button[data-testid="baseButton-secondary"],
-    [data-testid="baseButton-secondary"],
-    [data-testid="stBaseButton-secondary"] {
+    .stButton > button[data-testid*="secondary"],
+    .stButton button[data-testid*="secondary"],
+    button[data-testid*="secondary"] {
         background: transparent !important;
-        color: var(--teal-d) !important;
-        border: 1.5px solid rgba(0,194,203,0.45) !important;
+        color: #006B73 !important;
+        border: 1.5px solid rgba(0,107,115,0.55) !important;
         font-weight: 500 !important;
-        font-size: 0.875rem !important;
-        min-height: 44px !important;
-        border-radius: var(--radius-md) !important;
+        font-size: 13px !important;
+        min-height: 40px !important;
+        border-radius: var(--radius-sm) !important;
         transition: all 0.15s ease !important;
+        box-shadow: none !important;
     }
-    /* Also override the button p rule for secondary */
-    .stButton button[data-testid="baseButton-secondary"] p,
-    .stButton > button[data-testid="baseButton-secondary"] p {
-        color: var(--teal-d) !important;
+    /* p element inside secondary */
+    .stButton > button[data-testid*="secondary"] p,
+    .stButton button[data-testid*="secondary"] p,
+    button[data-testid*="secondary"] p {
+        color: #006B73 !important;
+        font-weight: 500 !important;
     }
-    .stButton button[data-testid="baseButton-secondary"]:hover,
-    .stButton > button[data-testid="baseButton-secondary"]:hover,
-    [data-testid="baseButton-secondary"]:hover,
-    [data-testid="stBaseButton-secondary"]:hover {
-        background: rgba(0,194,203,0.06) !important;
+    .stButton > button[data-testid*="secondary"]:hover,
+    .stButton button[data-testid*="secondary"]:hover,
+    button[data-testid*="secondary"]:hover {
+        background: rgba(0,107,115,0.07) !important;
         border-color: var(--teal) !important;
         color: var(--teal) !important;
     }
-    .stButton button[data-testid="baseButton-secondary"]:hover p,
-    .stButton > button[data-testid="baseButton-secondary"]:hover p {
+    .stButton > button[data-testid*="secondary"]:hover p,
+    .stButton button[data-testid*="secondary"]:hover p,
+    button[data-testid*="secondary"]:hover p {
         color: var(--teal) !important;
     }
 
@@ -2016,6 +2025,142 @@ def inject_styles():
     .stMarkdown i {
         font-style: normal !important;
     }
+
+    /* ============================================================================
+       BUTTON NORMALISATION — consistent height & padding across all tiers
+       Height unified at 40px. Text wraps naturally — no nowrap clipping.
+       ============================================================================ */
+    .stButton > button,
+    .stButton button {
+        min-height: 40px !important;
+        padding: 8px 16px !important;
+        font-size: 13px !important;
+        line-height: 1.4 !important;
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        word-break: break-word !important;
+    }
+
+    /* Download buttons — same height */
+    .stDownloadButton > button {
+        min-height: 40px !important;
+        padding: 8px 16px !important;
+        font-size: 13px !important;
+    }
+
+    /* Link buttons (st.link_button) — same height */
+    .stLinkButton > a {
+        min-height: 40px !important;
+        padding: 8px 16px !important;
+        font-size: 13px !important;
+        display: inline-flex !important;
+        align-items: center !important;
+    }
+
+    /* ============================================================================
+       RESPONSIVE — TABLET (max-width: 960px)
+       Tighten padding, reduce hero heading, soften side margins.
+       ============================================================================ */
+    @media (max-width: 960px) {
+        .main .block-container {
+            padding: 1.5rem 1.25rem !important;
+            max-width: 100% !important;
+        }
+
+        .dpc-hero-heading {
+            font-size: 38px !important;
+        }
+
+        .dpc-hero-subheading {
+            font-size: 18px !important;
+        }
+
+        h1 { font-size: 36px !important; }
+        h2 { font-size: 28px !important; }
+        h3 { font-size: 22px !important; }
+
+        /* Ingredient label padding */
+        .dpc-ingredient {
+            padding: 20px 18px !important;
+        }
+
+        /* Cards */
+        .dpc-card {
+            padding: 20px 22px !important;
+        }
+
+        /* Concierge bubble */
+        .dpc-concierge {
+            font-size: 16px !important;
+            padding: 16px 18px !important;
+        }
+
+        /* Streamlit columns stack friendlier on tablet:
+           Allow column content to wrap so buttons don't get squashed */
+        [data-testid="column"] {
+            min-width: 0 !important;
+        }
+    }
+
+    /* ============================================================================
+       RESPONSIVE — MOBILE (max-width: 640px)
+       Stack multi-col rows, simplify layouts.
+       ============================================================================ */
+    @media (max-width: 640px) {
+        .main .block-container {
+            padding: 1rem 0.875rem !important;
+        }
+
+        .dpc-hero-heading {
+            font-size: 30px !important;
+        }
+
+        h1 { font-size: 28px !important; }
+        h2 { font-size: 22px !important; }
+
+        .dpc-ingredient {
+            padding: 16px 14px !important;
+        }
+
+        .dpc-ingredient-field {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 4px !important;
+        }
+
+        .dpc-ingredient-value {
+            text-align: left !important;
+            max-width: 100% !important;
+        }
+
+        /* Force full-width buttons on very small screens */
+        .stButton > button {
+            width: 100% !important;
+        }
+    }
+
+    /* ============================================================================
+       MATURITY DASHBOARD — panel card field chips consistent sizing
+       ============================================================================ */
+    .dpc-panel-chip {
+        display: inline-block;
+        background: rgba(13,27,42,0.04);
+        color: #8C9BAA;
+        border: 1px solid rgba(13,27,42,0.10);
+        border-radius: 6px;
+        padding: 2px 8px;
+        font-size: .72rem;
+        font-weight: 500;
+        margin: 2px 3px 2px 0;
+    }
+
+    .dpc-panel-chip.filled {
+        background: rgba(0,196,140,0.10);
+        color: #006B73;
+        border-color: rgba(0,196,140,0.25);
+    }
+
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)

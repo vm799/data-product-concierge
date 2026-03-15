@@ -234,6 +234,27 @@ def render_colleague_handoff(spec: DataProductSpec, handoff_data: dict) -> None:
             for meta in skipped_fields:
                 st.markdown(f"- **{meta.get('label', '')}**: {meta.get('question', '')}")
 
+    # Panel D — Tech Depth fields (L2 governance)
+    tech_depth_missing = [
+        f for f in ["target_systems", "target_dpro", "critical_data_elements"]
+        if not getattr(spec, f, None)
+    ]
+    if tech_depth_missing:
+        from core.field_registry import get_field_meta
+        st.markdown("#### Additional governance fields (L2)")
+        extras_html = '<div class="dpc-handoff-card">'
+        for field_name in tech_depth_missing:
+            meta = get_field_meta(field_name)
+            extras_html += (
+                f'<div style="padding:10px 0;border-bottom:1px solid rgba(13,27,42,0.08);">'
+                f'<div style="font-size:.8rem;font-weight:700;color:var(--text-1);'
+                f'text-transform:uppercase;letter-spacing:.06em;">{meta.get("label", field_name)} <em style="font-weight:400;font-size:.72rem;color:#8C9BAA;">(optional)</em></div>'
+                f'<div style="font-size:.85rem;color:var(--text-2);margin-top:3px;">{meta.get("question", "")}</div>'
+                f'</div>'
+            )
+        extras_html += "</div>"
+        st.markdown(extras_html, unsafe_allow_html=True)
+
 
 def render(
     spec: DataProductSpec, narrative: str, concierge_message: str
