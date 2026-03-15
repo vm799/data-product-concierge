@@ -143,17 +143,98 @@ def inject_styles():
     }
 
     /* ============================================================================
-       LAYOUT: MAIN CONTAINER
+       LAYOUT: MAIN CONTAINER (3/4 width — sidebar takes the rest)
        ============================================================================ */
     .main .block-container {
-        max-width: 880px;
+        max-width: 860px;
         margin: 0 auto;
-        padding: 2rem 1.5rem;
+        padding: 2rem 2rem;
     }
 
-    /* Remove sidebar styling */
+    /* ============================================================================
+       SIDEBAR — dark navy, full height
+       ============================================================================ */
     [data-testid="stSidebar"] {
-        display: none;
+        background-color: #0D1B2A !important;
+        border-right: 1px solid rgba(0,194,203,0.15) !important;
+        min-width: 280px !important;
+        max-width: 300px !important;
+    }
+
+    [data-testid="stSidebar"] * {
+        color: rgba(255,255,255,0.85) !important;
+    }
+
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] h4 {
+        color: #FFFFFF !important;
+        font-family: 'Sora', sans-serif !important;
+    }
+
+    [data-testid="stSidebar"] .stMarkdown p {
+        color: rgba(255,255,255,0.7) !important;
+        font-size: 13px !important;
+    }
+
+    [data-testid="stSidebar"] hr {
+        border-color: rgba(0,194,203,0.2) !important;
+        margin: 12px 0 !important;
+    }
+
+    /* Sidebar buttons — teal outline */
+    [data-testid="stSidebar"] .stButton > button {
+        background-color: transparent !important;
+        color: rgba(255,255,255,0.8) !important;
+        border: 1px solid rgba(0,194,203,0.35) !important;
+        border-radius: 6px !important;
+        padding: 8px 12px !important;
+        font-size: 13px !important;
+        font-weight: 500 !important;
+        min-height: 36px !important;
+        text-transform: none !important;
+        letter-spacing: 0 !important;
+        box-shadow: none !important;
+        width: 100% !important;
+    }
+
+    [data-testid="stSidebar"] .stButton > button:hover {
+        background-color: rgba(0,194,203,0.12) !important;
+        color: #00C2CB !important;
+        border-color: #00C2CB !important;
+        transform: none !important;
+        box-shadow: none !important;
+    }
+
+    /* Active chapter button in sidebar */
+    [data-testid="stSidebar"] .stButton > button[disabled],
+    [data-testid="stSidebar"] .stButton > button:disabled {
+        background-color: rgba(0,194,203,0.18) !important;
+        color: #00C2CB !important;
+        border-color: #00C2CB !important;
+        opacity: 1 !important;
+    }
+
+    /* Sidebar progress bar */
+    [data-testid="stSidebar"] .stProgress > div > div {
+        background-color: #00C2CB !important;
+    }
+    [data-testid="stSidebar"] .stProgress > div {
+        background-color: rgba(255,255,255,0.1) !important;
+    }
+
+    /* Sidebar expander */
+    [data-testid="stSidebar"] [data-testid="stExpander"] {
+        border: 1px solid rgba(0,194,203,0.2) !important;
+        border-radius: 8px !important;
+        background: rgba(0,194,203,0.05) !important;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stExpander"] summary {
+        color: rgba(255,255,255,0.9) !important;
+        font-size: 13px !important;
+        font-weight: 600 !important;
     }
 
     /* ============================================================================
@@ -213,59 +294,110 @@ def inject_styles():
     }
 
     /* ============================================================================
-       COMPONENT: PRIMARY BUTTONS
+       COMPONENT: BUTTONS — dark navy + white text, teal on hover
        ============================================================================ */
-    .stButton > button {
-        background-color: var(--navy) !important;
-        color: var(--white) !important;
-        border-radius: var(--radius-sm) !important;
-        padding: 16px 32px !important;
-        font-size: 18px !important;
-        font-weight: 600 !important;
-        width: 100% !important;
-        min-height: 60px !important;
+    .stButton button,
+    .stButton > button,
+    button[kind="secondary"],
+    button[kind="primary"] {
+        background-color: #0D1B2A !important;
+        color: #FFFFFF !important;
         border: none !important;
-        transition: all 0.2s ease !important;
+        border-radius: var(--radius-sm) !important;
+        padding: 14px 28px !important;
+        font-size: 15px !important;
+        font-weight: 700 !important;
+        width: 100% !important;
+        min-height: 52px !important;
+        cursor: pointer !important;
+        transition: background-color 0.18s ease, transform 0.12s ease, box-shadow 0.18s ease !important;
         font-family: 'Sora', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
-        letter-spacing: 0 !important;
+        letter-spacing: 0.05em !important;
+        text-transform: uppercase !important;
+        box-shadow: 0 2px 8px rgba(13,27,42,0.18) !important;
     }
 
-    .stButton > button:hover {
-        background-color: var(--teal) !important;
-        transform: scale(1.01) !important;
+    .stButton button p,
+    .stButton > button p {
+        color: #FFFFFF !important;
     }
 
+    .stButton button:hover,
+    .stButton > button:hover,
+    button[kind="secondary"]:hover,
+    button[kind="primary"]:hover {
+        background-color: #00C2CB !important;
+        color: #FFFFFF !important;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 4px 16px rgba(0,194,203,0.32) !important;
+    }
+
+    .stButton button:active,
     .stButton > button:active {
-        background-color: var(--teal) !important;
-        transform: scale(0.99) !important;
+        background-color: #009FA8 !important;
+        transform: translateY(0px) scale(0.98) !important;
+        box-shadow: none !important;
     }
 
     /* ============================================================================
-       COMPONENT: PILL BUTTONS (.dpc-pill)
+       PRIMARY CTA BUTTONS — teal, visually distinct from secondary navy buttons
+       ============================================================================ */
+    [data-testid="baseButton-primary"],
+    button[data-testid="baseButton-primary"] {
+        background-color: #00C2CB !important;
+        color: #0D1B2A !important;
+        border: none !important;
+        box-shadow: 0 2px 12px rgba(0,194,203,0.35) !important;
+    }
+
+    [data-testid="baseButton-primary"] p,
+    button[data-testid="baseButton-primary"] p {
+        color: #0D1B2A !important;
+    }
+
+    [data-testid="baseButton-primary"]:hover,
+    button[data-testid="baseButton-primary"]:hover {
+        background-color: #009FA8 !important;
+        color: #FFFFFF !important;
+        box-shadow: 0 4px 20px rgba(0,194,203,0.50) !important;
+    }
+
+    [data-testid="baseButton-primary"] p:hover,
+    button[data-testid="baseButton-primary"]:hover p {
+        color: #FFFFFF !important;
+    }
+
+    /* ============================================================================
+       COMPONENT: FORM OPTION PILLS (.dpc-pill) — teal, distinct from navy CTAs
        ============================================================================ */
     .dpc-pill {
-        border: 2px solid var(--navy);
-        background-color: transparent;
-        border-radius: 100px;
-        padding: 12px 24px;
-        font-size: 16px;
-        color: var(--navy);
-        cursor: pointer;
-        transition: all 0.2s ease;
-        font-weight: 500;
-        font-family: 'Sora', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        display: inline-block;
-        user-select: none;
+        border: 2px solid var(--teal) !important;
+        background-color: var(--teal-light) !important;
+        border-radius: 100px !important;
+        padding: 10px 20px !important;
+        font-size: 14px !important;
+        color: var(--teal) !important;
+        cursor: pointer !important;
+        transition: all 0.18s ease !important;
+        font-weight: 600 !important;
+        font-family: 'Sora', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+        display: inline-block !important;
+        user-select: none !important;
+        letter-spacing: 0.02em !important;
     }
 
     .dpc-pill:hover {
-        background-color: var(--navy);
-        color: var(--white);
+        background-color: var(--teal) !important;
+        color: #FFFFFF !important;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 4px 12px rgba(0,194,203,0.30) !important;
     }
 
     .dpc-pill.active {
-        background-color: var(--navy);
-        color: var(--white);
+        background-color: var(--teal) !important;
+        color: #FFFFFF !important;
+        border-color: var(--teal) !important;
+        box-shadow: 0 2px 8px rgba(0,194,203,0.30) !important;
     }
 
     /* ============================================================================

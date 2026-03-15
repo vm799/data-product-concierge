@@ -134,7 +134,7 @@ def render(
         {concierge_message}
     </div>
     """
-    st.markdown(concierge_html, unsafe_allow_html=True)
+    st.html(concierge_html)
 
     # Header with asset name + status badge + Collibra link
     status_class = f"dpc-status-{spec.status.lower()}" if spec.status else "dpc-status-draft"
@@ -155,7 +155,7 @@ def render(
         </div>
     </div>
     """
-    st.markdown(header_html, unsafe_allow_html=True)
+    st.html(header_html)
 
     # Build ingredient label container
     ingredient_sections = []
@@ -321,7 +321,7 @@ def render(
         {''.join(ingredient_sections)}
     </div>
     """
-    st.markdown(ingredient_html, unsafe_allow_html=True)
+    st.html(ingredient_html)
 
     # Data quality gauge
     if spec.data_quality_score is not None:
@@ -345,7 +345,7 @@ def render(
         </h4>
     </div>
     """
-    st.markdown(action_html, unsafe_allow_html=True)
+    st.html(action_html)
 
     col1, col2, col3 = st.columns(3)
 

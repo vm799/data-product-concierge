@@ -11,7 +11,7 @@ import json
 import os
 from datetime import date, datetime
 from enum import Enum
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, ClassVar, Set
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, EmailStr, validator, root_validator
@@ -83,6 +83,9 @@ class RegulatoryFrameworkEnum(str, Enum):
     PCI_DSS = "PCI-DSS"
     SOX = "SOX"
     GLBA = "GLBA"
+    SFDR = "SFDR"
+    EU_TAXONOMY = "EU Taxonomy"
+    TCFD = "TCFD"
 
 
 # ============================================================================
@@ -223,11 +226,11 @@ class DataProductSpec(BaseModel):
     # IDENTITY (Required: name, description, business_purpose)
     # --------
     id: Optional[UUID] = Field(default_factory=uuid4, description="Unique identifier")
-    name: str = Field(..., min_length=1, max_length=500, description="Data product name")
-    description: str = Field(..., min_length=1, max_length=5000, description="Detailed description")
-    business_purpose: str = Field(..., min_length=1, max_length=2000, description="Business rationale")
+    name: str = Field(default="", max_length=500, description="Data product name")
+    description: str = Field(default="", max_length=5000, description="Detailed description")
+    business_purpose: str = Field(default="", max_length=2000, description="Business rationale")
     status: Optional[StatusEnum] = Field(None, description="Lifecycle status")
-    version: Optional[str] = Field(None, regex=r"^\d+\.\d+\.\d+$", description="Semantic version")
+    version: Optional[str] = Field(None, pattern=r"^\d+\.\d+\.\d+$", description="Semantic version")
 
     # --------
     # CLASSIFICATION (Required: domain, data_classification)
@@ -330,7 +333,7 @@ class DataProductSpec(BaseModel):
     # REQUIRED FIELDS TRACKING
     # --------
 
-    REQUIRED_FIELDS = {
+    REQUIRED_FIELDS: ClassVar[Set[str]] = {
         "name",
         "description",
         "business_purpose",
@@ -348,7 +351,7 @@ class DataProductSpec(BaseModel):
         "schema_location",
     }
 
-    OPTIONAL_FIELDS = {
+    OPTIONAL_FIELDS: ClassVar[Set[str]] = {
         "id",
         "status",
         "version",

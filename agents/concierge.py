@@ -701,3 +701,307 @@ Now write the completion message:"""
                 f"Reference: {product_ref}. "
                 "You can now publish this to Collibra."
             )
+
+    async def explain_chapter_fields(
+        self, chapter_num: int, chapter_name: str, spec: DataProductSpec
+    ) -> dict:
+        """
+        Generate context-aware explanations for all fields in a chapter.
+
+        One LLM call returns a JSON dict {field_name: explanation} for every
+        field in the chapter. Explanations reference the specific product being
+        built (name, domain, regulatory scope) so guidance is relevant, not generic.
+
+        Args:
+            chapter_num: Chapter number (1-5).
+            chapter_name: Human-readable chapter name.
+            spec: DataProductSpec with fields populated so far (for context).
+
+        Returns:
+            dict: {field_name: "1-sentence explanation"} for all chapter fields.
+        """
+        chapter_fields = {
+            1: ["name", "description", "business_purpose", "status", "version"],
+            2: ["domain", "sub_domain", "data_classification", "tags"],
+            3: [
+                "data_owner_name", "data_owner_email", "data_steward_name",
+                "data_steward_email", "certifying_officer_email", "last_certified_date",
+            ],
+            4: [
+                "regulatory_scope", "geographic_restriction", "pii_flag",
+                "encryption_standard", "retention_period", "source_systems",
+                "update_frequency", "schema_location",
+            ],
+            5: [
+                "access_level", "consumer_teams", "sla_tier",
+                "business_criticality", "cost_centre", "related_reports",
+            ],
+        }
+        fields = chapter_fields.get(chapter_num, [])
+        fields_json = json.dumps(fields)
+
+        product_context = spec.name or "a new data product"
+        domain_context = f" in the {spec.domain} domain" if spec.domain else ""
+        reg_context = (
+            f" governed by {', '.join(str(r) for r in spec.regulatory_scope)}"
+            if spec.regulatory_scope
+            else ""
+        )
+
+        prompt = f"""You are explaining data product fields to non-technical users at a global asset management firm.
+
+Product: {product_context}{domain_context}{reg_context}
+Chapter {chapter_num}: {chapter_name}
+Fields to explain: {fields_json}
+
+Return ONLY valid JSON — a dict where each key is a field name and each value is a single plain-English sentence explaining why that field matters to portfolio managers, analysts, or ops teams.
+
+Make each explanation specific to this product's context where possible. No jargon without immediate explanation. Reference financial services consequences.
+
+Example format:
+{{
+  "field_name": "One sentence why this matters to the user.",
+  ...
+}}
+
+Now write explanations for all {len(fields)} fields:"""
+
+        messages = [
+            {"role": "system", "content": self.SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ]
+
+        try:
+            response_text = await self._call_llm(messages, temperature=0.3)
+            # Strip markdown code fences if present
+            clean = response_text.strip()
+            if clean.startswith("```"):
+                clean = clean.split("```")[1]
+                if clean.startswith("json"):
+                    clean = clean[4:]
+            explanations = json.loads(clean.strip())
+            logger.info(
+                "Chapter field explanations generated",
+                extra={
+                    "request_id": self.request_id,
+                    "chapter_num": chapter_num,
+                    "field_count": len(explanations),
+                },
+            )
+            return explanations
+        except Exception as e:
+            logger.error(
+                f"Failed to generate chapter field explanations: {str(e)}",
+                extra={"request_id": self.request_id, "chapter_num": chapter_num},
+            )
+            # Fallback: generic per-field explanation
+            return {f: f"{f} is required to complete your data product specification." for f in fields}
+
+    async def seed_new_product(self, query: str, intent: "ConciergeIntent") -> dict:
+        """
+        Draft initial field values for a CREATE flow from the user's query.
+
+        Uses the already-parsed ConciergeIntent (detected_domain, detected_scope)
+        to avoid hallucination on structured fields. Only generates free-text fields
+        (name, description, business_purpose) via LLM.
+
+        Args:
+            query: Original user query string.
+            intent: ConciergeIntent parsed from the query.
+
+        Returns:
+            dict: Partial spec fields {name, description, business_purpose,
+                  domain, regulatory_scope}. Falls back to {} on error.
+        """
+        domain = intent.detected_domain or ""
+        reg_scope = intent.detected_scope or []
+
+        prompt = f"""A user at an asset management firm wants to create a new data product. They described their need as:
+
+"{query}"
+
+Draft three fields for their data product specification. Be specific and professional.
+
+Return ONLY valid JSON:
+{{
+    "name": "A clear, concise product name (3-6 words, title case, no generic words like 'Data Product')",
+    "description": "2-3 sentences describing what data this product contains and what it provides.",
+    "business_purpose": "1-2 sentences explaining the specific business use case this serves."
+}}
+
+Keep it grounded in their exact words. Do not invent capabilities not implied by the query."""
+
+        messages = [
+            {"role": "system", "content": self.SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ]
+
+        try:
+            response_text = await self._call_llm(messages, temperature=0.4)
+            clean = response_text.strip()
+            if clean.startswith("```"):
+                clean = clean.split("```")[1]
+                if clean.startswith("json"):
+                    clean = clean[4:]
+            seed = json.loads(clean.strip())
+
+            # Inject structured fields directly from intent — no LLM hallucination risk
+            if domain:
+                seed["domain"] = domain
+            if reg_scope:
+                seed["regulatory_scope"] = reg_scope
+
+            logger.info(
+                "New product seeded from query",
+                extra={
+                    "request_id": self.request_id,
+                    "detected_domain": domain,
+                    "detected_scope": reg_scope,
+                    "seeded_name": seed.get("name", ""),
+                },
+            )
+            return seed
+        except Exception as e:
+            logger.error(
+                f"Failed to seed new product: {str(e)}",
+                extra={"request_id": self.request_id},
+            )
+            return {}
+
+    async def chat_turn(
+        self,
+        user_message: str,
+        history: list[dict],
+        spec: "DataProductSpec",
+        valid_options: dict,
+    ) -> dict:
+        """
+        Process one conversational turn for the CREATE flow.
+
+        Extracts spec field values from natural language, confirms capture,
+        and asks about the next missing required field.
+
+        Args:
+            user_message: Latest message from the user.
+            history: Prior conversation messages [{role, content}].
+            spec: DataProductSpec accumulated so far.
+            valid_options: Collibra-fed option lists (source_systems, etc.).
+
+        Returns:
+            dict with keys: response (str), extracted (dict), is_complete (bool)
+        """
+        missing = spec.required_missing()
+
+        spec_state = {
+            "name": spec.name or "(not set)",
+            "description": spec.description or "(not set)",
+            "business_purpose": spec.business_purpose or "(not set)",
+            "domain": spec.domain or "(not set)",
+            "data_classification": str(spec.data_classification) if spec.data_classification else "(not set)",
+            "data_owner_name": spec.data_owner_name or "(not set)",
+            "data_owner_email": str(spec.data_owner_email) if spec.data_owner_email else "(not set)",
+            "data_steward_email": str(spec.data_steward_email) if spec.data_steward_email else "(not set)",
+            "regulatory_scope": [str(r) for r in spec.regulatory_scope] if spec.regulatory_scope else [],
+            "source_systems": spec.source_systems or [],
+            "update_frequency": str(spec.update_frequency) if spec.update_frequency else "(not set)",
+            "schema_location": spec.schema_location or "(not set)",
+            "access_level": str(spec.access_level) if spec.access_level else "(not set)",
+            "sla_tier": str(spec.sla_tier) if spec.sla_tier else "(not set)",
+            "business_criticality": str(spec.business_criticality) if spec.business_criticality else "(not set)",
+        }
+
+        history_text = "\n".join(
+            f"{m['role'].upper()}: {m['content']}" for m in history[-6:]
+        )
+
+        enum_options = {
+            "data_classification": ["Confidential", "Internal", "Public", "Restricted"],
+            "update_frequency": ["Real-time", "Hourly", "Daily", "Weekly", "Monthly", "Ad-hoc"],
+            "access_level": ["Open", "Request-based", "Restricted", "Confidential"],
+            "sla_tier": ["Gold (99.9%)", "Silver (99.5%)", "Bronze (99%)", "None"],
+            "business_criticality": ["Mission-critical", "High", "Medium", "Low"],
+            "regulatory_scope": ["GDPR", "MiFID II", "AIFMD", "BCBS 239", "Solvency II",
+                                  "CCPA", "HIPAA", "PCI-DSS", "SOX", "GLBA", "SFDR", "EU Taxonomy", "TCFD"],
+            "source_systems": valid_options.get("source_systems", []),
+            "consumer_teams": valid_options.get("consumer_teams", []),
+        }
+
+        prompt = f"""You are a warm, expert Data Product Concierge at a global asset management firm.
+You are having a CONVERSATION with a user to help them create a new data product specification.
+
+CURRENT SPEC STATE:
+{json.dumps(spec_state, indent=2)}
+
+REQUIRED FIELDS STILL MISSING:
+{', '.join(missing) if missing else 'None — all required fields are complete!'}
+
+RECENT CONVERSATION:
+{history_text}
+
+USER'S LATEST MESSAGE:
+"{user_message}"
+
+VALID OPTIONS FOR KEY FIELDS:
+{json.dumps(enum_options, indent=2)}
+
+YOUR TASK:
+1. Extract any field values the user just provided (be generous — if it's clear, capture it)
+2. Write a warm, conversational response (2-3 sentences max):
+   - Confirm what you just captured with the specific values
+   - Ask about the NEXT 1-2 most important missing required fields
+   - For enum fields: weave the valid options naturally into your question
+3. Set is_complete=true ONLY if there are NO required fields missing after extraction
+
+RULES:
+- Sound like a knowledgeable colleague having a conversation, not a form
+- For list fields (regulatory_scope, source_systems): extract as JSON array
+- For enum fields: use the EXACT string from valid options
+- If user says "skip" or "not sure", note it and move to the next required field
+- Do not hallucinate valid options that aren't in the lists provided
+
+Return ONLY valid JSON (no preamble, no markdown fences):
+{{
+    "response": "Your warm 2-3 sentence conversational response",
+    "extracted": {{
+        "field_name": value
+    }},
+    "is_complete": false
+}}"""
+
+        messages = [
+            {"role": "system", "content": self.SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ]
+
+        try:
+            response_text = await self._call_llm(messages, temperature=0.4)
+            clean = response_text.strip()
+            if clean.startswith("```"):
+                clean = clean.split("```")[1]
+                if clean.startswith("json"):
+                    clean = clean[4:]
+            result = json.loads(clean.strip())
+            logger.info(
+                "Chat turn processed",
+                extra={
+                    "request_id": self.request_id,
+                    "fields_extracted": list(result.get("extracted", {}).keys()),
+                    "is_complete": result.get("is_complete", False),
+                },
+            )
+            return {
+                "response": result.get("response", "Got it! What else can you tell me?"),
+                "extracted": result.get("extracted", {}),
+                "is_complete": bool(result.get("is_complete", False)) and not missing,
+            }
+        except Exception as e:
+            logger.error(f"Chat turn failed: {str(e)}", extra={"request_id": self.request_id})
+            next_field = missing[0].replace("_", " ") if missing else None
+            return {
+                "response": (
+                    "Got it, I've noted that."
+                    + (f" Now, could you tell me your **{next_field}**?" if next_field else " Great progress — we're almost there!")
+                ),
+                "extracted": {},
+                "is_complete": False,
+            }

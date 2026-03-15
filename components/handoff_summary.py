@@ -96,7 +96,7 @@ def render(
     # Render gauge
     completion_pct = spec.completion_percentage()
     gauge_html = _render_completion_gauge(completion_pct)
-    st.markdown(gauge_html, unsafe_allow_html=True)
+    st.html(gauge_html)
 
     # Field status summary
     required_missing = spec.required_missing()
@@ -124,7 +124,7 @@ def render(
         </div>
     </div>
     """
-    st.markdown(status_html, unsafe_allow_html=True)
+    st.html(status_html)
 
     # List required missing fields with explanations
     if required_missing:
@@ -240,7 +240,7 @@ def render_completion(
         <div class="dpc-complete-checkmark">✓</div>
     </div>
     """
-    st.markdown(checkmark_html, unsafe_allow_html=True)
+    st.html(checkmark_html)
 
     st.markdown("## Submission Complete", help="Your data product has been successfully submitted")
 
@@ -254,7 +254,7 @@ def render_completion(
         <div style="font-size: 14px; color: #8C9BAA; margin-top: 12px;">Keep this number for tracking and support inquiries</div>
     </div>
     """
-    st.markdown(info_html, unsafe_allow_html=True)
+    st.html(info_html)
 
     # Product summary
     st.markdown(f"**Data Product:** {spec.name}")

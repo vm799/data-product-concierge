@@ -17,7 +17,7 @@ No mock data. Production-ready.
 
 import streamlit as st
 from datetime import date as date_type
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 from models.data_product import (
     DataProductSpec,
     StatusEnum,
@@ -105,34 +105,76 @@ CHAPTERS = {
 
 def render_progress_bar(current_chapter: int, chapter_names: List[str]):
     """
-    Renders a 5-circle progress bar with connecting line.
+    Renders a clickable 5-step progress bar.
+
+    Completed and future steps are clickable buttons to jump chapters.
+    Current step is highlighted and non-interactive.
 
     Args:
         current_chapter: Current chapter (1-5)
         chapter_names: List of chapter titles
     """
-    html = '<div class="dpc-progress">'
+    st.markdown("""
+    <style>
+    /* Progress nav column buttons — styled as step circles */
+    div.prog-nav div[data-testid="column"] .stButton > button {
+        border-radius: 100px !important;
+        padding: 6px 16px !important;
+        min-height: 36px !important;
+        font-size: 13px !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.03em !important;
+        text-transform: uppercase !important;
+        width: 100% !important;
+        box-shadow: none !important;
+    }
+    </style>
+    <div class="prog-nav">
+    """, unsafe_allow_html=True)
 
-    for i, name in enumerate(chapter_names, 1):
-        if i < current_chapter:
-            status = "complete"
-            icon = "✓"
-        elif i == current_chapter:
-            status = "active"
-            icon = str(i)
-        else:
-            status = "inactive"
-            icon = str(i)
+    cols = st.columns(len(chapter_names))
+    for i, (col, name) in enumerate(zip(cols, chapter_names), 1):
+        with col:
+            if i < current_chapter:
+                # Completed — teal, clickable
+                st.markdown(
+                    f'<div style="text-align:center;margin-bottom:4px;">'
+                    f'<span style="display:inline-block;width:28px;height:28px;border-radius:50%;'
+                    f'background:#00C48C;color:#fff;font-weight:700;font-size:13px;line-height:28px;text-align:center;">✓</span>'
+                    f'</div>'
+                    f'<div style="text-align:center;font-size:11px;color:#00C48C;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;">{name}</div>',
+                    unsafe_allow_html=True,
+                )
+                if st.button(f"← Back", key=f"chap_nav_{i}", use_container_width=True, help=f"Go back to {name}"):
+                    st.session_state.chapter = i
+                    st.rerun()
+            elif i == current_chapter:
+                # Active — navy, non-clickable
+                st.markdown(
+                    f'<div style="text-align:center;margin-bottom:4px;">'
+                    f'<span style="display:inline-block;width:28px;height:28px;border-radius:50%;'
+                    f'background:#0D1B2A;color:#fff;font-weight:700;font-size:13px;line-height:28px;text-align:center;'
+                    f'box-shadow:0 0 0 3px rgba(0,194,203,0.4);">{i}</span>'
+                    f'</div>'
+                    f'<div style="text-align:center;font-size:11px;color:#0D1B2A;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;">{name}</div>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                # Future — grey, clickable (allow skipping forward in remix)
+                st.markdown(
+                    f'<div style="text-align:center;margin-bottom:4px;">'
+                    f'<span style="display:inline-block;width:28px;height:28px;border-radius:50%;'
+                    f'background:#CBD5E0;color:#5B6A7E;font-weight:700;font-size:13px;line-height:28px;text-align:center;">{i}</span>'
+                    f'</div>'
+                    f'<div style="text-align:center;font-size:11px;color:#8C9BAA;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;">{name}</div>',
+                    unsafe_allow_html=True,
+                )
+                if st.button(f"→ {name}", key=f"chap_nav_{i}", use_container_width=True, help=f"Skip to {name}"):
+                    st.session_state.chapter = i
+                    st.rerun()
 
-        html += f"""
-        <div class="dpc-progress-step {status}">
-            <div class="dpc-progress-circle">{icon if status != 'complete' else ''}</div>
-            <div class="dpc-progress-label">{name}</div>
-        </div>
-        """
-
-    html += "</div>"
-    st.markdown(html, unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("<hr style='margin:16px 0 8px;border-color:rgba(13,27,42,0.08);'>", unsafe_allow_html=True)
 
 
 def _validate_email(email: str) -> bool:
@@ -144,13 +186,13 @@ def _validate_email(email: str) -> bool:
 
 def _render_text_field(
     label: str,
-    value: str | None,
+    value: Optional[str],
     field_name: str,
     required: bool,
     path: str,
     explanation: str,
     is_multiline: bool = False,
-) -> str | None:
+) -> Optional[str]:
     """Render a text input field (single or multi-line)."""
     display_label = f"{label} {'*' if required else '(Optional)'}"
 
@@ -194,8 +236,8 @@ def _render_text_field(
 
 
 def _render_email_field(
-    label: str, value: str | None, field_name: str, required: bool, path: str, explanation: str
-) -> str | None:
+    label: str, value: Optional[str], field_name: str, required: bool, path: str, explanation: str
+) -> Optional[str]:
     """Render an email input field with validation."""
     display_label = f"{label} {'*' if required else '(Optional)'}"
 
@@ -240,8 +282,8 @@ def _render_email_field(
 
 
 def _render_date_field(
-    label: str, value: date_type | None, field_name: str, required: bool, path: str, explanation: str
-) -> date_type | None:
+    label: str, value: Optional[date_type], field_name: str, required: bool, path: str, explanation: str
+) -> Optional[date_type]:
     """Render a date input field."""
     display_label = f"{label} {'*' if required else '(Optional)'}"
 
@@ -271,13 +313,13 @@ def _render_date_field(
 
 def _render_enum_field(
     label: str,
-    value: str | None,
+    value: Optional[str],
     field_name: str,
     required: bool,
     path: str,
     valid_options: List[str],
     explanation: str,
-) -> str | None:
+) -> Optional[str]:
     """Render enum field as pill buttons (never dropdown)."""
     display_label = f"{label} {'*' if required else '(Optional)'}"
 
@@ -292,7 +334,7 @@ def _render_enum_field(
 
         if st.session_state.get(f"editing_{field_name}", False):
             st.write(display_label)
-            cols = st.columns(min(len(valid_options), 3))
+            cols = st.columns(max(1, min(len(valid_options), 3)))
             selected = None
             for i, option in enumerate(valid_options):
                 with cols[i % 3]:
@@ -306,7 +348,7 @@ def _render_enum_field(
             return value
     else:
         st.write(display_label)
-        cols = st.columns(min(len(valid_options), 3))
+        cols = st.columns(max(1, min(len(valid_options), 3)))
         selected = None
         for i, option in enumerate(valid_options):
             with cols[i % 3]:
@@ -326,13 +368,13 @@ def _render_enum_field(
 
 def _render_multi_select_field(
     label: str,
-    value: List[str] | None,
+    value: Optional[List[str]],
     field_name: str,
     required: bool,
     path: str,
     valid_options: List[str],
     explanation: str,
-) -> List[str] | None:
+) -> Optional[List[str]]:
     """Render multi-select field as pill toggles."""
     display_label = f"{label} {'*' if required else '(Optional)'}"
     current_value = value or []
@@ -348,7 +390,7 @@ def _render_multi_select_field(
 
         if st.session_state.get(f"editing_{field_name}", False):
             st.write(display_label)
-            cols = st.columns(min(len(valid_options), 3))
+            cols = st.columns(max(1, min(len(valid_options), 3)))
             selected = list(current_value)
             for i, option in enumerate(valid_options):
                 with cols[i % 3]:
@@ -368,7 +410,7 @@ def _render_multi_select_field(
             return current_value
     else:
         st.write(display_label)
-        cols = st.columns(min(len(valid_options), 3))
+        cols = st.columns(max(1, min(len(valid_options), 3)))
         selected = list(current_value)
         for i, option in enumerate(valid_options):
             with cols[i % 3]:
@@ -393,8 +435,8 @@ def _render_multi_select_field(
 
 
 def _render_bool_field(
-    label: str, value: bool | None, field_name: str, required: bool, path: str, explanation: str
-) -> bool | None:
+    label: str, value: Optional[bool], field_name: str, required: bool, path: str, explanation: str
+) -> Optional[bool]:
     """Render boolean field as Yes/No pill buttons."""
     display_label = f"{label} {'*' if required else '(Optional)'}"
 
@@ -821,10 +863,10 @@ def render_chapter(
 
     with col3:
         if chapter < 5:
-            if st.button("Looks good → next chapter", use_container_width=True):
+            if st.button("Looks good → next chapter", use_container_width=True, type="primary"):
                 nav_action = "next"
         else:
-            if st.button("Review & Submit →", use_container_width=True):
+            if st.button("Review & Submit →", use_container_width=True, type="primary"):
                 nav_action = "submit"
 
     return spec, nav_action or "stay"

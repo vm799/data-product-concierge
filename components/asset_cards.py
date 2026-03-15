@@ -119,13 +119,17 @@ def render_results(
         {concierge_message}
     </div>
     """
-    st.markdown(concierge_html, unsafe_allow_html=True)
+    st.html(concierge_html)
 
     selected_asset = None
     action_path = None
 
+    # Filter out cards the user has skipped this session
+    skipped_ids = st.session_state.get("skipped_ids", [])
+    visible_results = [r for r in results if r.id not in skipped_ids]
+
     # Render each result as a card
-    for idx, result in enumerate(results):
+    for idx, result in enumerate(visible_results):
         # Determine domain badge color (rotating through 5 colors)
         domain_color = f"color-{(idx % 5) + 1}"
 
@@ -236,79 +240,63 @@ def render_results(
             <!-- Relevance Score -->
             {relevance_html}
 
-            <!-- Intent Buttons (horizontal row) -->
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 16px;">
-                <div>
-                    <button class="dpc-pill" style="width: 100%; padding: 10px 12px; font-size: 14px;" id="btn-reuse-{idx}">
-                        ✓ Use as-is
-                    </button>
-                </div>
-                <div>
-                    <button class="dpc-pill" style="width: 100%; padding: 10px 12px; font-size: 14px;" id="btn-remix-{idx}">
-                        ✂ Remix
-                    </button>
-                </div>
-                <div>
-                    <button class="dpc-pill" style="width: 100%; padding: 10px 12px; font-size: 14px;" id="btn-skip-{idx}">
-                        Skip
-                    </button>
-                </div>
-            </div>
         </div>
         """
 
-        st.markdown(card_html, unsafe_allow_html=True)
+        st.html(card_html)
 
-        # Create three columns for intent buttons (Streamlit-backed)
+        # Intent action buttons
         col1, col2, col3 = st.columns(3)
 
         with col1:
             if st.button(
-                "✓ This is it — use as-is",
+                "✓ USE AS IS",
                 key=f"reuse_{result.id}_{idx}",
                 use_container_width=True,
+                type="primary",
             ):
                 selected_asset = result
                 action_path = "reuse"
-                st.rerun()
 
         with col2:
             if st.button(
-                "✂ Use this as a starting point",
+                "✂ REMIX / REUSE",
                 key=f"remix_{result.id}_{idx}",
                 use_container_width=True,
             ):
                 selected_asset = result
                 action_path = "remix"
-                st.rerun()
 
         with col3:
             if st.button(
-                "Skip",
+                "✕ SKIP",
                 key=f"skip_{result.id}_{idx}",
                 use_container_width=True,
             ):
-                pass  # No action on skip
+                if "skipped_ids" not in st.session_state:
+                    st.session_state.skipped_ids = []
+                st.session_state.skipped_ids.append(result.id)
+                st.rerun()
 
         st.divider()
 
-    # Bottom CTA: Create from scratch
+    # Bottom CTA: Build your own
     create_html = """
     <div style="text-align: center; margin-top: 2rem; margin-bottom: 1rem;">
         <p style="color: var(--text-secondary); margin-bottom: 1rem;">
-            None of these match? Create your own governed data product.
+            None of these match? Build a new governed data product from scratch.
         </p>
     </div>
     """
-    st.markdown(create_html, unsafe_allow_html=True)
+    st.html(create_html)
 
     if st.button(
-        "➕ None of these — create from scratch",
+        "🏗 BUILD YOUR OWN",
         use_container_width=True,
         key="create_from_scratch",
+        type="primary",
     ):
         selected_asset = None
         action_path = "create"
-        st.rerun()
 
     return selected_asset, action_path

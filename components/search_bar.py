@@ -18,30 +18,9 @@ def render_hero():
             - submitted: True if "Find Data Products" button was clicked
     """
 
-    html = """
-    <div class="dpc-hero">
-        <div style="max-width: 700px; width: 100%;">
+    html = '<div style="text-align: center; padding: 2rem;"><h1 style="color: #0D1B2A; font-size: 2.5rem; margin-bottom: 1rem;">Data Product Concierge</h1><p style="color: #5B6A7E; font-size: 1.2rem; margin-bottom: 2rem;">Find, reuse, or create governed data products</p><div style="background: #F0F4F8; padding: 1.5rem; border-radius: 16px; max-width: 600px; margin: 0 auto; text-align: left;">Welcome! I\'m your Data Product Concierge. Tell me what data you\'re looking for — describe it in your own words, and I\'ll find the best match in our catalogue.</div></div>'
 
-            <!-- Logo / App Title -->
-            <h1 class="dpc-hero-heading">Data Product Concierge</h1>
-
-            <!-- Tagline -->
-            <p class="dpc-hero-subheading">
-                Find, reuse, or create governed data products
-            </p>
-
-            <!-- Concierge Welcome Message -->
-            <div class="dpc-concierge" style="text-align: left; max-width: 100%; margin-left: 0; margin-right: 0; margin-bottom: 2rem;">
-                Welcome! I'm your Data Product Concierge. Tell me what data you're looking for — describe it in your own words, and I'll find the best match in our catalogue.
-            </div>
-
-        </div>
-    </div>
-    """
-
-    st.markdown(html, unsafe_allow_html=True)
-
-    # Search input - full width with custom styling
+    st.html(html)
     query = st.text_input(
         label="",
         placeholder="Describe the data you need — e.g. ESG emissions for Paris-aligned European funds",
