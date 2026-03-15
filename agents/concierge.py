@@ -36,12 +36,22 @@ class DataProductConcierge:
     """
 
     SYSTEM_PROMPT = (
-        "You are the Data Product Concierge for a leading global asset management firm. "
-        "You are warm, expert, and concise. You NEVER use technical jargon without immediately "
-        "explaining it. You guide non-technical users (portfolio managers, analysts, ops teams) "
-        "through finding, reusing, or creating data products in Collibra. You know every field "
-        "intimately and can explain why it matters in plain language relevant to financial services. "
-        "You proactively suggest the right path. You celebrate progress. You never overwhelm."
+        "You are the Data Product Concierge for a global asset management firm. "
+        "Your job is to guide portfolio managers, analysts, and operations staff through "
+        "finding, adapting, or creating data products in Collibra. "
+        "\n\nTONE: Semi-formal, direct, and genuinely helpful. Write like a knowledgeable colleague, "
+        "not a customer service bot. Short sentences. Active voice. "
+        "\n\nRULES:"
+        "\n- Never use hollow openers: no 'Certainly', 'Absolutely', 'Great question', "
+        "'Of course', 'Fantastic', 'I would be happy to', 'Sure thing', or similar filler. "
+        "\n- Do not use em dashes (the — character). Use a comma, colon, or period instead. "
+        "\n- Reference specific product names, domains, and field values from the data given to you. "
+        "Do not speak in generalities when specifics are available. "
+        "\n- Only state facts that appear in the data provided. Do not invent field values, "
+        "regulatory implications, technical capabilities, or team structures that were not mentioned. "
+        "If something is unknown, say so plainly. "
+        "\n- Keep narrative responses to 2-3 sentences. Field explanations: 1 sentence only. "
+        "\n- Explain any technical term the first time you use it, in plain English."
     )
 
     def __init__(self):
@@ -72,26 +82,26 @@ class DataProductConcierge:
                 extra={"model": self.openai_model, "request_id": self.request_id},
             )
 
-    async def _call_llm(self, messages: list[dict], temperature: float = 0.3) -> str:
+    async def _call_llm(
+        self, messages: list[dict], temperature: float = 0.3, json_mode: bool = False
+    ) -> str:
         """
         Dispatch LLM call to configured backend (OpenAI or Bedrock).
 
         Args:
             messages: List of message dicts with 'role' and 'content' keys.
-                     First message should be system prompt.
-            temperature: Sampling temperature (0.0-1.0). Default 0.3 for consistency.
+            temperature: Sampling temperature (0.0-1.0).
+            json_mode: When True, enforces JSON-only output (OpenAI response_format).
+                       Use for all structured extraction calls to prevent hallucination drift.
 
         Returns:
             str: LLM response text.
-
-        Raises:
-            Exception: If LLM call fails (logged, not raised).
         """
         try:
             if self.llm_provider == "bedrock":
                 return await self._call_bedrock(messages, temperature)
             else:
-                return await self._call_openai(messages, temperature)
+                return await self._call_openai(messages, temperature, json_mode=json_mode)
         except Exception as e:
             logger.error(
                 f"LLM call failed: {str(e)}",
@@ -99,23 +109,25 @@ class DataProductConcierge:
             )
             raise
 
-    async def _call_openai(self, messages: list[dict], temperature: float) -> str:
+    async def _call_openai(
+        self, messages: list[dict], temperature: float, json_mode: bool = False
+    ) -> str:
         """
         Call OpenAI API with async client.
 
-        Args:
-            messages: List of message dicts.
-            temperature: Sampling temperature.
-
-        Returns:
-            str: Response text.
+        json_mode=True forces response_format=json_object, which eliminates markdown
+        fences and hallucinated prose around JSON — making extraction deterministic.
+        Only use when the prompt explicitly asks for JSON output.
         """
-        response = await self.openai_client.chat.completions.create(
+        kwargs: dict = dict(
             model=self.openai_model,
             messages=messages,
             temperature=temperature,
             max_tokens=2000,
         )
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+        response = await self.openai_client.chat.completions.create(**kwargs)
         return response.choices[0].message.content
 
     async def _call_bedrock(self, messages: list[dict], temperature: float) -> str:
@@ -199,7 +211,7 @@ Return ONLY valid JSON with no preamble:
         ]
 
         try:
-            response_text = await self._call_llm(messages, temperature=0.3)
+            response_text = await self._call_llm(messages, temperature=0.2, json_mode=True)
             response_json = json.loads(response_text.strip())
 
             intent = ConciergeIntent(**response_json)
@@ -336,7 +348,7 @@ Return ONLY valid JSON with no preamble:
         ]
 
         try:
-            response_text = await self._call_llm(messages, temperature=0.3)
+            response_text = await self._call_llm(messages, temperature=0.2, json_mode=True)
             response_json = json.loads(response_text.strip())
 
             recommendation = PathRecommendation(**response_json)
@@ -397,19 +409,20 @@ Return ONLY valid JSON with no preamble:
             else "You're on track with all required fields!"
         )
 
-        prompt = f"""Write a warm, 2-3 sentence introduction to chapter {chapter_num} of a data product specification.
+        prompt = f"""Write a 2-3 sentence introduction to chapter {chapter_num} of a data product specification form.
 
-Product Context: {context_str}
-Overall Progress: {completion_pct}%
+Product: {context_str}
+Progress: {completion_pct}% complete
 Chapter: {chapter_name}
-Next Steps: {remaining_str}
+{remaining_str}
 
-The introduction should:
-1. Celebrate progress so far (e.g., "{completion_pct}% complete")
-2. Explain what this chapter covers in plain language
-3. Reassure them it's straightforward
-
-Keep tone warm and encouraging, avoid jargon."""
+Instructions:
+- Mention the current progress (e.g. "{completion_pct}% done") and what this chapter covers, in plain English.
+- Reference the product name or domain if available.
+- If all required fields are on track, say so simply.
+- Do not use em dashes. Do not use hollow phrases like "Great!", "Fantastic", or "Let's dive in".
+- Write like a knowledgeable colleague, not a chatbot. Semi-formal, direct.
+- 2-3 sentences only. No preamble."""
 
         messages = [
             {"role": "system", "content": self.SYSTEM_PROMPT},
@@ -417,7 +430,7 @@ Keep tone warm and encouraging, avoid jargon."""
         ]
 
         try:
-            response = await self._call_llm(messages, temperature=0.5)
+            response = await self._call_llm(messages, temperature=0.3)
             logger.info(
                 "Chapter introduction generated",
                 extra={
@@ -453,20 +466,21 @@ Keep tone warm and encouraging, avoid jargon."""
         Returns:
             str: 1-sentence plain-English explanation.
         """
-        prompt = f"""Explain this data product field in ONE sentence for non-technical users at a global asset management firm.
+        prompt = f"""Explain this data product field in exactly one sentence for non-technical users at an asset management firm.
 
-Field Name: {field_name}
+Field: {field_name}
 Context: {context}
 
-The explanation should:
-- Start with why this field matters to portfolio managers/analysts/ops
-- Be jargon-free (explain any necessary terms)
-- Be specific to financial services
-- Be exactly 1 sentence
+Rules:
+- One sentence. No more.
+- Explain why this field matters in practice, not what it is in theory.
+- Use plain English. If a technical term is necessary, define it in the same sentence.
+- Do not start with the field name. Do not use em dashes.
+- Only reference facts in the context above. Do not invent regulatory implications or team structures.
 
-Example for "data_classification": "This tells your team which information security rules apply, so you know whether this data is safe to share externally or must stay confidential."
+Example: "This tells your team which information security rules apply, so you know whether this data can be shared externally or must stay confidential."
 
-Now explain '{field_name}':"""
+Now write one sentence for '{field_name}':"""
 
         messages = [
             {"role": "system", "content": self.SYSTEM_PROMPT},
@@ -533,7 +547,7 @@ Rules:
         ]
 
         try:
-            response_text = await self._call_llm(messages, temperature=0.2)
+            response_text = await self._call_llm(messages, temperature=0.1, json_mode=True)
             response_json = json.loads(response_text.strip())
 
             # Validate confidence bounds
@@ -588,9 +602,10 @@ Rules:
             else "All required fields are complete."
         )
 
-        prompt = f"""Write a 3-4 paragraph handoff narrative for a technical team about this data product.
+        prompt = f"""Write a handoff note for the technical team building this data product.
 
-Product Name: {spec.name}
+--- SPEC DATA (use only these facts) ---
+Product: {spec.name}
 Description: {spec.description}
 Business Purpose: {spec.business_purpose}
 Domain: {spec.domain or 'not set'}
@@ -601,14 +616,19 @@ Update Frequency: {spec.update_frequency or 'not set'}
 Status: {spec.status or 'Draft'}
 Completion: {spec.completion_percentage()}%
 Outstanding: {missing_str}
+--- END SPEC DATA ---
 
-Structure as:
-1. Overview - What this data product is and its business value
-2. Users & Access - Who will use it, access level
-3. Technical Next Steps - What needs to be done (schema, ingestion, etc.)
-4. Outstanding Items - What's still needed before go-live
+Write 3-4 short paragraphs:
+1. What this product is and why it exists (use the description and business_purpose above verbatim or paraphrased closely)
+2. Who will use it and at what access level (only if access_level or consumer_teams are set)
+3. What the technical team needs to do next (only reference schema_location, source_systems, and update_frequency from the data above)
+4. Outstanding fields that still need completing before go-live
 
-Keep it professional, specific to this product, and actionable for engineers."""
+Rules:
+- Only use facts from the spec data above. Do not invent source systems, teams, schemas, or regulatory requirements.
+- Do not use em dashes. Write in plain, direct English.
+- No hollow openers. Start paragraph 1 directly with the product name.
+- If a field is "not set", acknowledge it is still needed rather than inventing a value."""
 
         messages = [
             {"role": "system", "content": self.SYSTEM_PROMPT},
@@ -656,23 +676,24 @@ Keep it professional, specific to this product, and actionable for engineers."""
         product_ref = str(spec.id) if spec.id else "your data product"
         owner_str = f"working with {spec.data_owner_name}" if spec.data_owner_name else "for your team"
 
-        prompt = f"""Write a warm, celebratory 2-3 sentence completion message.
+        prompt = f"""Write a 2-3 sentence message confirming that a data product specification is complete.
 
 Product: {spec.name}
-Owner: {spec.data_owner_name or 'unassigned'}
+Owner: {spec.data_owner_name or 'not assigned'}
 Reference: {spec.id or 'pending'}
-Domain: {spec.domain}
+Domain: {spec.domain or 'not set'}
 Completion: {spec.completion_percentage()}%
 
-The message should:
-1. Celebrate finishing the specification
-2. Reference the product name and owner
-3. Hint at the next step (publishing to Collibra)
-4. Feel personal and warm
+Rules:
+- Reference the product name and owner directly.
+- Mention that the next step is publishing to Collibra, and include the reference ID if available.
+- Do not start with "Fantastic", "Great", "Excellent", or any hollow opener.
+- Do not use em dashes. Write plainly and warmly, like a colleague confirming good news.
+- 2-3 sentences only.
 
-Example tone: "Fantastic! 'Sales Analytics' is now complete. Sarah and the team can start using this in Collibra right away. Reference: [ID]"
+Example: "'{spec.name}' is now complete and ready to submit. {spec.data_owner_name or 'The team'} can follow up via Collibra using reference {spec.id or 'pending'}."
 
-Now write the completion message:"""
+Now write the message:"""
 
         messages = [
             {"role": "system", "content": self.SYSTEM_PROMPT},
@@ -680,7 +701,7 @@ Now write the completion message:"""
         ]
 
         try:
-            response = await self._call_llm(messages, temperature=0.6)
+            response = await self._call_llm(messages, temperature=0.3)
             logger.info(
                 "Completion message generated",
                 extra={
@@ -748,23 +769,24 @@ Now write the completion message:"""
             else ""
         )
 
-        prompt = f"""You are explaining data product fields to non-technical users at a global asset management firm.
+        prompt = f"""Return a JSON object with one-sentence explanations for each data product field listed below.
 
 Product: {product_context}{domain_context}{reg_context}
 Chapter {chapter_num}: {chapter_name}
-Fields to explain: {fields_json}
+Fields: {fields_json}
 
-Return ONLY valid JSON — a dict where each key is a field name and each value is a single plain-English sentence explaining why that field matters to portfolio managers, analysts, or ops teams.
+Rules for each explanation:
+- One sentence only. Plain English. No em dashes.
+- Explain the practical consequence of this field, not its definition.
+- If a domain or regulatory framework is in scope, reference it specifically (e.g. "GDPR" or "SFDR") only if it is listed above. Do not invent regulatory context.
+- Do not start with the field name as the subject.
+- Do not use hollow phrases like "This important field..." or "This field allows you to...".
 
-Make each explanation specific to this product's context where possible. No jargon without immediate explanation. Reference financial services consequences.
-
-Example format:
+Return ONLY a JSON object in this exact format, no preamble:
 {{
-  "field_name": "One sentence why this matters to the user.",
+  "field_name": "One sentence.",
   ...
-}}
-
-Now write explanations for all {len(fields)} fields:"""
+}}"""
 
         messages = [
             {"role": "system", "content": self.SYSTEM_PROMPT},
@@ -772,8 +794,8 @@ Now write explanations for all {len(fields)} fields:"""
         ]
 
         try:
-            response_text = await self._call_llm(messages, temperature=0.3)
-            # Strip markdown code fences if present
+            response_text = await self._call_llm(messages, temperature=0.2, json_mode=True)
+            # Strip markdown code fences if present (Bedrock may still add them)
             clean = response_text.strip()
             if clean.startswith("```"):
                 clean = clean.split("```")[1]
@@ -816,20 +838,24 @@ Now write explanations for all {len(fields)} fields:"""
         domain = intent.detected_domain or ""
         reg_scope = intent.detected_scope or []
 
-        prompt = f"""A user at an asset management firm wants to create a new data product. They described their need as:
+        prompt = f"""A user at an asset management firm submitted this query to find or create a data product:
 
 "{query}"
 
-Draft three fields for their data product specification. Be specific and professional.
+Using only what they literally said, draft three fields for their specification.
 
 Return ONLY valid JSON:
 {{
-    "name": "A clear, concise product name (3-6 words, title case, no generic words like 'Data Product')",
-    "description": "2-3 sentences describing what data this product contains and what it provides.",
-    "business_purpose": "1-2 sentences explaining the specific business use case this serves."
+    "name": "3-6 word title, title case. Derived directly from their words. No generic suffixes like 'Data Product' or 'Dataset'.",
+    "description": "2-3 sentences. Describe what data this product contains. Use their exact terminology. Do not add capabilities, systems, or use cases they did not mention.",
+    "business_purpose": "1-2 sentences. Explain the business need they expressed. Quote or closely paraphrase their words."
 }}
 
-Keep it grounded in their exact words. Do not invent capabilities not implied by the query."""
+Critical rules:
+- Do not invent source systems, regulatory frameworks, team names, or technical capabilities.
+- If the query is vague, keep the drafted fields vague rather than filling gaps with assumptions.
+- Do not use em dashes in the output.
+- name, description, and business_purpose are the only fields to return."""
 
         messages = [
             {"role": "system", "content": self.SYSTEM_PROMPT},
@@ -837,7 +863,7 @@ Keep it grounded in their exact words. Do not invent capabilities not implied by
         ]
 
         try:
-            response_text = await self._call_llm(messages, temperature=0.4)
+            response_text = await self._call_llm(messages, temperature=0.2, json_mode=True)
             clean = response_text.strip()
             if clean.startswith("```"):
                 clean = clean.split("```")[1]
@@ -945,23 +971,27 @@ VALID OPTIONS FOR KEY FIELDS:
 {json.dumps(enum_options, indent=2)}
 
 YOUR TASK:
-1. Extract any field values the user just provided (be generous — if it's clear, capture it)
-2. Write a warm, conversational response (2-3 sentences max):
-   - Confirm what you just captured with the specific values
-   - Ask about the NEXT 1-2 most important missing required fields
-   - For enum fields: weave the valid options naturally into your question
-3. Set is_complete=true ONLY if there are NO required fields missing after extraction
+1. Extract any field values the user just provided. Be generous: if it is reasonably clear, capture it.
+2. Write a response (2-3 sentences):
+   - Confirm what was captured, using the actual values.
+   - Ask about the next 1-2 missing required fields.
+   - For enum fields, include the valid options in the question naturally.
+3. Set is_complete=true only when no required fields remain after extraction.
 
-RULES:
-- Sound like a knowledgeable colleague having a conversation, not a form
-- For list fields (regulatory_scope, source_systems): extract as JSON array
-- For enum fields: use the EXACT string from valid options
-- If user says "skip" or "not sure", note it and move to the next required field
-- Do not hallucinate valid options that aren't in the lists provided
+RESPONSE TONE RULES:
+- Write like a knowledgeable colleague. Semi-formal, direct.
+- Do not open with "Certainly", "Absolutely", "Great", "Fantastic", or similar filler.
+- Do not use em dashes (—). Use commas or periods instead.
+- Only confirm values the user actually provided. Do not paraphrase or embellish their answers.
 
-Return ONLY valid JSON (no preamble, no markdown fences):
+EXTRACTION RULES:
+- For list fields (regulatory_scope, source_systems): extract as JSON array.
+- For enum fields: use the EXACT string from valid options above. Do not invent options.
+- If user says "skip" or "not sure", note it and move to the next field.
+
+Return ONLY valid JSON:
 {{
-    "response": "Your warm 2-3 sentence conversational response",
+    "response": "2-3 sentence response following the tone rules above.",
     "extracted": {{
         "field_name": value
     }},
@@ -974,7 +1004,7 @@ Return ONLY valid JSON (no preamble, no markdown fences):
         ]
 
         try:
-            response_text = await self._call_llm(messages, temperature=0.4)
+            response_text = await self._call_llm(messages, temperature=0.3, json_mode=True)
             clean = response_text.strip()
             if clean.startswith("```"):
                 clean = clean.split("```")[1]

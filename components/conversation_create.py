@@ -414,8 +414,8 @@ TURN_GROUPS = [
         "prompt": (
             "Now the regulatory side:\n\n"
             "1. **Which regulations apply?** (GDPR, MiFID II, SFDR, EU Taxonomy, TCFD, BCBS 239, AIFMD, Solvency II, DORA)\n"
-            "2. **Does it contain PII?** (personally identifiable information — names, emails, IDs)\n\n"
-            "Say 'not sure' and I'll suggest based on your domain."
+            "2. **Does it contain PII?** (personally identifiable information: names, emails, IDs)\n\n"
+            "If you are not sure about the regulations, say so and I will suggest based on the domain."
         ),
         "hint": "e.g. 'SFDR and EU Taxonomy apply, no PII'"
     },
@@ -423,10 +423,10 @@ TURN_GROUPS = [
         "id": "governance",
         "fields": ["data_owner_name", "data_owner_email", "data_steward_email"],
         "prompt": (
-            "Governance — who is accountable?\n\n"
-            "1. **Data Owner** — the person ultimately responsible (name + email)\n"
-            "2. **Data Steward** — day-to-day contact for quality/access issues (email)\n\n"
-            "If you're the owner, just say 'me' and I'll use your details."
+            "Governance: who is accountable for this product?\n\n"
+            "1. **Data Owner**: the person ultimately responsible (name and email)\n"
+            "2. **Data Steward**: day-to-day contact for quality and access issues (email only is fine)\n\n"
+            "If you are the owner, just say 'me'."
         ),
         "hint": "e.g. 'Owner is Sarah Chen, sarah.chen@firm.com. Steward is marco.silva@firm.com'"
     },
@@ -434,11 +434,11 @@ TURN_GROUPS = [
         "id": "technical",
         "fields": ["source_systems", "update_frequency", "schema_location"],
         "prompt": (
-            "Technical details — or hand these to your data engineer:\n\n"
-            "1. **Source systems** — where does this data come from? (Bloomberg, MSCI, internal DWH, etc.)\n"
-            "2. **Update frequency** — Real-time / Daily / Weekly / Monthly / Ad-hoc\n"
-            "3. **Schema location** — Snowflake path (DB.SCHEMA.TABLE), if known\n\n"
-            "Not sure? Type 'hand over' and I'll send the tech fields to your engineer."
+            "Technical details. If you are not sure, your data engineer can fill these in later.\n\n"
+            "1. **Source systems**: where does this data come from? (Bloomberg, MSCI, internal DWH, etc.)\n"
+            "2. **Update frequency**: Real-time / Daily / Weekly / Monthly / Ad-hoc\n"
+            "3. **Schema location**: Snowflake path (DB.SCHEMA.TABLE), if known\n\n"
+            "Not sure? Type 'hand over' to send the spec to your engineer."
         ),
         "hint": "e.g. 'Bloomberg and MSCI, monthly updates, ANALYTICS_DB.ESG.SCOPE1_EU'"
     },
@@ -446,11 +446,11 @@ TURN_GROUPS = [
         "id": "access",
         "fields": ["access_level", "sla_tier", "business_criticality"],
         "prompt": (
-            "Almost done — access and SLA:\n\n"
-            "1. **Access level** — Open / Request-based / Restricted / Confidential\n"
-            "2. **SLA tier** — Gold (99.9%) / Silver (99.5%) / Bronze (99%) / None\n"
-            "3. **Business criticality** — Mission-critical / High / Medium / Low\n\n"
-            "These determine monitoring priority and incident response."
+            "Almost there. Three more fields on access and service levels:\n\n"
+            "1. **Access level**: Open / Request-based / Restricted / Confidential\n"
+            "2. **SLA tier**: Gold (99.9% uptime) / Silver (99.5%) / Bronze (99%) / None\n"
+            "3. **Business criticality**: Mission-critical / High / Medium / Low\n\n"
+            "These determine monitoring priority and how quickly incidents are resolved."
         ),
         "hint": "e.g. 'Request-based access, Gold SLA, mission-critical'"
     },
@@ -458,9 +458,8 @@ TURN_GROUPS = [
         "id": "consumers",
         "fields": ["consumer_teams"],
         "prompt": (
-            "Last one — who will use this data product?\n\n"
-            "Which teams should have access? (e.g. Portfolio Management, ESG Research, Client Reporting, Compliance, Risk)\n\n"
-            "You can name multiple teams."
+            "Last question: which teams will use this data product?\n\n"
+            "Name the teams that should have access (e.g. Portfolio Management, ESG Research, Client Reporting, Compliance, Risk). You can list several."
         ),
         "hint": "e.g. 'Portfolio Management, ESG Research, and Compliance'"
     },
@@ -514,7 +513,7 @@ _HANDOVER_PHRASES = {
 }
 
 _CONFIRM_VARIANTS = [
-    "✓ Got it —", "✓ Perfect —", "✓ Noted —", "✓ Great —", "✓ Captured —", "✓ Excellent —",
+    "✓ Noted:", "✓ Captured:", "✓ Got it:", "✓ Recorded:", "✓ Saved:",
 ]
 
 
@@ -698,7 +697,7 @@ def _preview_chat_turn(
     # — Handover request —
     if _is_handover_request(user_message):
         return {
-            "response": "Of course — let's hand over to the tech team now. I'll generate a summary of what you've captured and what still needs completing.",
+            "response": "Understood. I will prepare a summary of what has been captured so far and what the tech team still needs to complete.",
             "extracted": {},
             "field_status": field_status,
             "trigger_handover": True,
@@ -706,7 +705,7 @@ def _preview_chat_turn(
 
     if not current_field:
         return {
-            "response": "🎉 Everything is captured! Click **Review & Submit** above to finalise your data product.",
+            "response": "All fields are captured. Click **Review & Submit** above to finalise your data product.",
             "extracted": {},
             "field_status": field_status,
             "trigger_handover": False,
@@ -817,7 +816,7 @@ def _preview_chat_turn(
                 "extracted": {}, "field_status": field_status, "trigger_handover": False,
             }
         new_status = {**field_status, current_field: FIELD_STATUS_DEFERRED}
-        response = f"No problem — I'll come back to **{label}** at the end."
+        response = f"Skipped **{label}** for now. I will come back to it at the end."
         next_f = _next_field(new_status, field_status)
         if next_f:
             response += "\n\n" + _ask_field(next_f, valid_options)
@@ -834,9 +833,9 @@ def _preview_chat_turn(
 
         answered_count = sum(1 for s in new_status.values() if s == FIELD_STATUS_ANSWERED)
         if answered_count == 5:
-            response += " Five fields captured — you're making great progress! 🚀"
+            response += f" ({answered_count} of {total_business} fields covered so far.)"
         elif answered_count == 10:
-            response += " Ten fields in — nearly done with the business side! 💪"
+            response += f" ({answered_count} of {total_business} covered. Nearly there.)"
 
         next_f = _next_field(new_status, field_status)
         if next_f:
@@ -844,7 +843,7 @@ def _preview_chat_turn(
                 response += f"\n\n↩ Coming back to **{FIELD_REGISTRY.get(next_f, {}).get('label', next_f)}** now."
             response += "\n\n" + _ask_field(next_f, valid_options)
         else:
-            response += "\n\n🎉 All fields covered! Click **Review & Submit**, or say **'hand over'** to notify the tech team."
+            response += "\n\nAll business fields are covered. Click **Review & Submit** above, or say **'hand over'** to send the spec to your tech team."
 
         return {"response": response, "extracted": extracted, "field_status": new_status, "trigger_handover": False}
 
@@ -1274,25 +1273,26 @@ def render_conversation(
                 if getattr(spec, f, None) not in (None, "", []):
                     field_status[f] = FIELD_STATUS_ANSWERED
             st.session_state.field_status = field_status
-            parts = [f"I've made a start based on your search:\n\n**Name:** {spec.name}\n**Description:** {spec.description}\n**Business Purpose:** {spec.business_purpose}"]
+            parts = [f"Based on your search, here is a draft to start from:\n\n**Name:** {spec.name}\n**Description:** {spec.description}\n**Business Purpose:** {spec.business_purpose}"]
             if spec.domain:
                 parts.append(f"\n**Domain:** {spec.domain}")
             if spec.regulatory_scope:
                 parts.append(f"\n**Regulatory Scope:** {', '.join(str(r) for r in spec.regulatory_scope)}")
-            parts.append("\n\nDoes that look right? Say **'looks good'** and I'll continue with the next fields.")
+            parts.append("\n\nDoes that look right? Say **'looks good'** to continue, or correct anything you want to change.")
             opening = "".join(parts)
         else:
             first_group = TURN_GROUPS[0]
             first_group_prompt = first_group["prompt"]
             if first_group.get("hint"):
-                first_group_prompt += "\n\n*Tip: {}*".format(first_group["hint"])
+                first_group_prompt += "\n\n*Example: {}*".format(first_group["hint"])
             opening = (
-                "Let's build your data product together — I'll group related questions to keep this short (7 turns total).\n\n"
+                "We will build your data product specification together. "
+                "There are 7 short groups of questions. You can answer each group in one message.\n\n"
                 "At any point:\n"
-                "- Say **'help'** for an explanation of what I'm asking\n"
-                "- Say **'not needed'** if a field doesn't apply\n"
-                "- Say **'skip'** to defer and come back later\n"
-                "- Say **'hand over'** to send the partial spec to your tech team\n\n"
+                "- Say **'help'** for context on what I am asking\n"
+                "- Say **'not needed'** if a field does not apply\n"
+                "- Say **'skip'** to come back to something later\n"
+                "- Say **'hand over'** to pass the partial spec to your tech team\n\n"
                 "---\n\n"
                 + first_group_prompt
             )
