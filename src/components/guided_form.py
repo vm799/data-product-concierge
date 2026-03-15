@@ -10,7 +10,11 @@ import urllib.parse
 from datetime import date, datetime
 from typing import Optional
 
+import logging
+
 import streamlit as st
+
+logger = logging.getLogger(__name__)
 
 from models.data_product import DataProductSpec
 from core.field_registry import (
@@ -51,7 +55,8 @@ def _get_field_explanation(field_name: str, meta: dict, spec) -> str:
         from app import _demo_active
         if _demo_active():
             return static
-    except Exception:
+    except Exception as exc:
+        logger.debug("_demo_active import failed in _get_field_explanation", exc_info=True)
         return static
 
     domain = getattr(spec, "domain", "") or ""
@@ -69,7 +74,12 @@ def _get_field_explanation(field_name: str, meta: dict, spec) -> str:
     try:
         result = run_async(concierge.explain_field(field_name, context), timeout=8)
         st.session_state[cache_key] = result or static
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "explain_field failed — using static fallback",
+            exc_info=True,
+            extra={"field_name": field_name},
+        )
         st.session_state[cache_key] = static
     return st.session_state[cache_key]
 
@@ -90,7 +100,8 @@ def _maybe_normalise(field_name: str, raw_value, meta: dict, valid_options: dict
         from app import _demo_active
         if _demo_active():
             return raw_value, False, ""
-    except Exception:
+    except Exception as exc:
+        logger.debug("_demo_active import failed in _maybe_normalise", exc_info=True)
         return raw_value, False, ""
 
     from core.async_utils import run_async
@@ -108,7 +119,12 @@ def _maybe_normalise(field_name: str, raw_value, meta: dict, valid_options: dict
             if r.message:
                 st.caption(f"⚠ {r.message}")
             return raw_value, False, ""
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "validate_and_normalise failed — passing raw value",
+            exc_info=True,
+            extra={"field_name": field_name},
+        )
         return raw_value, False, ""
 
 
@@ -495,8 +511,9 @@ def _assign_value(spec: DataProductSpec, field_name: str, raw_value) -> DataProd
 
     try:
         return DataProductSpec(**spec_dict)
-    except Exception:
+    except Exception as exc:
         # If validation fails (e.g. enum mismatch), return original spec unchanged
+        logger.debug("DataProductSpec construction failed — returning original spec", exc_info=True)
         return spec
 
 
@@ -871,6 +888,56 @@ def _render_field_card(
             'font-weight:600;margin-bottom:.6rem;">💡 AI suggestion — review and confirm</div>'
         )
 
+    # --- Disambiguation confirm/deny ---
+    _disambig_key = f"disambig_{field_name}"
+    _disambig = st.session_state.get(_disambig_key)
+    if _disambig:
+        st.html(
+            f'<div style="background:rgba(245,166,35,0.1);border:1px solid rgba(245,166,35,0.3);'
+            f'border-radius:8px;padding:10px 14px;margin-bottom:.8rem;font-size:.85rem;color:#5B6A7E;">'
+            f'⚠ We matched your input to a known option. Please confirm:</div>'
+        )
+        _matched_label = _disambig.get("matched", "")
+        _col_yes, _col_no = st.columns(2)
+        with _col_yes:
+            if st.button(
+                f"Use matched value",
+                key=f"disambig_yes_{field_name}_{field_idx}",
+                type="primary",
+                use_container_width=True,
+            ):
+                # Extract the matched value from the message string "Did you mean "X"? (...)"
+                import re as _re
+                _m = _re.search(r'"([^"]+)"', _matched_label)
+                _accept = _m.group(1) if _m else _disambig.get("raw", "")
+                updated_spec = _assign_value(spec, field_name, _accept)
+                field_status[field_name] = FIELD_STATUS_ANSWERED
+                st.session_state["gf_field_status"] = field_status
+                del st.session_state[_disambig_key]
+                # Clear AI badge
+                _ai_s = st.session_state.get("ai_suggested_fields", set())
+                _ai_s.discard(field_name)
+                st.session_state["ai_suggested_fields"] = _ai_s
+                st.session_state["gf_field_idx"] = field_idx + 1
+                _scroll_top()
+                return updated_spec, "continue"
+        with _col_no:
+            if st.button(
+                "Keep my value",
+                key=f"disambig_no_{field_name}_{field_idx}",
+                use_container_width=True,
+            ):
+                updated_spec = _assign_value(spec, field_name, _disambig.get("raw", ""))
+                field_status[field_name] = FIELD_STATUS_ANSWERED
+                st.session_state["gf_field_status"] = field_status
+                del st.session_state[_disambig_key]
+                _ai_s = st.session_state.get("ai_suggested_fields", set())
+                _ai_s.discard(field_name)
+                st.session_state["ai_suggested_fields"] = _ai_s
+                st.session_state["gf_field_idx"] = field_idx + 1
+                _scroll_top()
+                return updated_spec, "continue"
+
     # --- Field label ---
     st.markdown(
         f'<div class="dpc-field-label" style="font-size:20px;font-weight:700;'
@@ -996,29 +1063,41 @@ def _render_field_card(
                         try:
                             from app import _demo_active
                             _demo = _demo_active()
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug("_demo_active import failed in Continue handler", exc_info=True)
                         if _concierge and not _demo:
                             from core.async_utils import run_async
-                            try:
-                                _impact = run_async(
-                                    _concierge.explain_field_impact(
-                                        field_name,
-                                        _orig_val,
-                                        _new_val,
-                                        {
-                                            "domain": getattr(updated_spec, "domain", None),
-                                            "data_classification": getattr(updated_spec, "data_classification", None),
-                                            "pii_flag": getattr(updated_spec, "pii_flag", None),
-                                            "regulatory_scope": getattr(updated_spec, "regulatory_scope", None),
-                                        },
-                                    ),
-                                    timeout=8,
-                                )
-                                if _impact and _impact.strip():
-                                    st.session_state[f"impact_msg_{field_name}"] = _impact
-                            except Exception:
-                                pass
+                            _impact_cache_key = (
+                                f"impact_{field_name}_{hash(_orig_val)}_{hash(_new_val)}"
+                            )
+                            if _impact_cache_key in st.session_state:
+                                _impact = st.session_state[_impact_cache_key]
+                            else:
+                                try:
+                                    _impact = run_async(
+                                        _concierge.explain_field_impact(
+                                            field_name,
+                                            _orig_val,
+                                            _new_val,
+                                            {
+                                                "domain": getattr(updated_spec, "domain", None),
+                                                "data_classification": getattr(updated_spec, "data_classification", None),
+                                                "pii_flag": getattr(updated_spec, "pii_flag", None),
+                                                "regulatory_scope": getattr(updated_spec, "regulatory_scope", None),
+                                            },
+                                        ),
+                                        timeout=8,
+                                    )
+                                    st.session_state[_impact_cache_key] = _impact or ""
+                                except Exception as exc:
+                                    logger.warning(
+                                        "explain_field_impact failed",
+                                        exc_info=True,
+                                        extra={"field_name": field_name},
+                                    )
+                                    _impact = ""
+                            if _impact and _impact.strip():
+                                st.session_state[f"impact_msg_{field_name}"] = _impact
 
             # Clear AI suggestion badge once user confirms this field
             _ai_suggested = st.session_state.get("ai_suggested_fields", set())

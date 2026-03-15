@@ -30,13 +30,17 @@ Preview mode uses a local rule engine — no LLM required.
 Live mode routes through concierge.chat_turn().
 """
 
+import asyncio
 import json
+import logging
 import re
 import random
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import quote
 
 import streamlit as st
+
+logger = logging.getLogger(__name__)
 
 from core.async_utils import run_async as _run_async
 
@@ -664,8 +668,8 @@ def _apply_extracted(spec: DataProductSpec, extracted: dict) -> DataProductSpec:
                 updates[field] = [str(v) for v in value]
             else:
                 updates[field] = str(value)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("_apply_extracted: could not coerce field", exc_info=True, extra={"field": field})
     return spec.model_copy(update=updates) if updates else spec
 
 
@@ -1243,7 +1247,8 @@ def render_conversation(
         try:
             from agents.concierge import DataProductConcierge
             concierge = DataProductConcierge()
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failed to initialise DataProductConcierge — falling back to preview mode", exc_info=True)
             concierge = None
 
     # — Session state init —
@@ -1441,7 +1446,11 @@ def render_conversation(
                     ))
                     result.setdefault("field_status", field_status)
                     result.setdefault("trigger_handover", False)
-                except Exception:
+                except asyncio.TimeoutError:
+                    logger.warning("conversation_create: chat_turn timed out")
+                    result = _preview_chat_turn(user_input, spec, valid_options, field_status, current_field)
+                except Exception as exc:
+                    logger.error("conversation_create: chat_turn failed — falling back to preview", exc_info=True)
                     result = _preview_chat_turn(user_input, spec, valid_options, field_status, current_field)
             else:
                 result = _preview_chat_turn(user_input, spec, valid_options, field_status, current_field)
@@ -1454,6 +1463,10 @@ def render_conversation(
                 st.session_state.field_status = result["field_status"]
 
             if result.get("trigger_handover"):
+                st.session_state.show_handover = True
+
+            # is_complete=True from chat_turn means all required fields captured → trigger handover
+            if result.get("is_complete"):
                 st.session_state.show_handover = True
 
             st.session_state.chat_history.append({

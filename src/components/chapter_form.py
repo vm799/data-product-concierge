@@ -714,7 +714,7 @@ def render_chapter(
     # Snapshot spec at chapter entry to detect field changes for rule triggers
     snapshot_key = f"_chapter_{chapter}_snapshot"
     if snapshot_key not in st.session_state:
-        st.session_state[snapshot_key] = spec.model_dump()
+        st.session_state[snapshot_key] = spec.dict()
 
     # Show concierge bubble
     render_guidance(concierge_message)
@@ -1217,7 +1217,7 @@ def render_chapter(
         st.markdown("---")
         spec = _render_suggestions(active_suggestions, spec)
     # Update snapshot after rendering
-    st.session_state[f"_chapter_{chapter}_snapshot"] = spec.model_dump()
+    st.session_state[f"_chapter_{chapter}_snapshot"] = spec.dict()
 
     # Navigation buttons
     st.markdown('<div style="margin-top:1.5rem;"></div>', unsafe_allow_html=True)

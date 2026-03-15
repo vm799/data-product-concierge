@@ -6,7 +6,13 @@ User describes their data product → AI extracts all possible fields via chat_t
 → guided form pre-populates with AI suggestions → user validates, not types from scratch.
 """
 
+import asyncio
+import logging
+
 import streamlit as st
+
+logger = logging.getLogger(__name__)
+
 from models.data_product import DataProductSpec
 from core.async_utils import run_async
 
@@ -28,8 +34,12 @@ def _apply_extracted_to_spec(spec: DataProductSpec, extracted: dict) -> DataProd
         try:
             setattr(spec, field_name, value)
             populated.add(field_name)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(
+                "Could not set extracted field on spec",
+                exc_info=True,
+                extra={"field_name": field_name},
+            )
     return spec, populated
 
 
@@ -110,7 +120,7 @@ def render_nlq_intake(
             from app import _demo_active
             demo = _demo_active()
         except Exception:
-            demo = False
+            demo = False  # safe default — treat as live mode
 
         if concierge and not demo:
             with st.spinner("Extracting fields from your description…"):
@@ -137,8 +147,13 @@ def render_nlq_intake(
                         st.info(
                             "Couldn't extract specific fields — you can fill them in the form."
                         )
+                except asyncio.TimeoutError:
+                    logger.warning("NLQ intake: chat_turn timed out after 20s")
+                    st.warning("AI extraction timed out — proceeding to form. You can fill fields manually.")
+                    st.session_state["ai_suggested_fields"] = set()
                 except Exception as exc:
-                    st.warning(f"AI extraction unavailable ({exc}). Proceeding to form.")
+                    logger.warning("NLQ intake: chat_turn failed", exc_info=True)
+                    st.warning("AI field extraction unavailable — proceeding to form.")
                     st.session_state["ai_suggested_fields"] = set()
         else:
             st.session_state["ai_suggested_fields"] = set()

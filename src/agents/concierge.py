@@ -151,7 +151,7 @@ class DataProductConcierge:
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
         if getattr(self, "_llm_via_apim", False) and self._apim_tm:
-            apim_headers = await self._apim_tm.get_llm_headers()
+            apim_headers = self._apim_tm.get_llm_headers()
             kwargs["extra_headers"] = apim_headers
         response = await self.openai_client.chat.completions.create(**kwargs)
         return response.choices[0].message.content

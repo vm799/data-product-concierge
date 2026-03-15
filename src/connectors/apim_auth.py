@@ -303,7 +303,7 @@ class APIMTokenManager:
 
         return headers
 
-    async def get_llm_headers(self) -> dict:
+    def get_llm_headers(self) -> dict:
         """
         Return auth headers for LLM calls routed through APIM (Azure OpenAI).
         Reuses the existing APIM bearer token cache — no new auth roundtrip needed.

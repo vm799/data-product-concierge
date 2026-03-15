@@ -292,6 +292,38 @@ def render(
     Returns:
         'submit' to proceed with submission, 'edit' to go back and edit, None if no action
     """
+    # --- AI completion narrative ---
+    _concierge = st.session_state.get("concierge")
+    _demo = False
+    try:
+        from app import _demo_active
+        _demo = _demo_active()
+    except Exception:
+        pass
+
+    if _concierge and not _demo:
+        _narrative_key = f"completion_narrative_{getattr(spec, 'name', '') or 'draft'}"
+        if _narrative_key not in st.session_state:
+            from core.async_utils import run_async
+            import logging
+            _logger = logging.getLogger(__name__)
+            try:
+                _narrative = run_async(_concierge.generate_completion_message(spec), timeout=12)
+                st.session_state[_narrative_key] = _narrative or ""
+            except Exception:
+                _logger.warning("generate_completion_message failed", exc_info=True)
+                st.session_state[_narrative_key] = ""
+        _narrative = st.session_state.get(_narrative_key, "")
+        if _narrative and _narrative.strip():
+            st.html(
+                f'<div style="background:rgba(0,107,115,0.06);border:1px solid rgba(0,107,115,0.2);'
+                f'border-radius:12px;padding:16px 20px;margin-bottom:1.5rem;">'
+                f'<div style="font-size:.85rem;font-weight:700;color:#006B73;margin-bottom:4px;'
+                f'text-transform:uppercase;letter-spacing:.06em;">✨ AI Summary</div>'
+                f'<div style="font-size:.95rem;color:#0D1B2A;line-height:1.6;">{_narrative}</div>'
+                f'</div>'
+            )
+
     # SECTION A: Concierge bubble
     st.markdown(
         f'<div class="dpc-concierge">{concierge_message}</div>',
