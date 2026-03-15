@@ -474,7 +474,7 @@ def render(
             f"**{len(missing_required)} required field{'s' if len(missing_required) > 1 else ''} still missing** — "
             f"complete these before submitting:\n\n"
             f"{field_list}{overflow}\n\n"
-            f"Go back and fill them in, or hand off to the tech team to complete."
+            f"Click **← Go back and edit** below to complete them, or hand off to the tech team to complete."
         )
 
     # ── Guardrail 2: no team notified (soft warning only — does not block submit) ──

@@ -114,7 +114,7 @@ def _maybe_normalise(field_name: str, raw_value, meta: dict, valid_options: dict
             st.toast(f"✓ Matched: {r.matched}", icon="✓")
             return r.matched, False, ""
         elif r.confidence >= 0.4 and r.matched:
-            return raw_value, True, f'Did you mean "{r.matched}"? ({r.message})'
+            return raw_value, True, r.matched
         else:
             if r.message:
                 st.caption(f"⚠ {r.message}")
@@ -897,19 +897,16 @@ def _render_field_card(
             f'border-radius:8px;padding:10px 14px;margin-bottom:.8rem;font-size:.85rem;color:#5B6A7E;">'
             f'⚠ We matched your input to a known option. Please confirm:</div>'
         )
-        _matched_label = _disambig.get("matched", "")
+        _matched_display = _disambig.get("matched", "")
         _col_yes, _col_no = st.columns(2)
         with _col_yes:
             if st.button(
-                f"Use matched value",
+                f'Use "{_matched_display}"',
                 key=f"disambig_yes_{field_name}_{field_idx}",
                 type="primary",
                 use_container_width=True,
             ):
-                # Extract the matched value from the message string "Did you mean "X"? (...)"
-                import re as _re
-                _m = _re.search(r'"([^"]+)"', _matched_label)
-                _accept = _m.group(1) if _m else _disambig.get("raw", "")
+                _accept = _disambig.get("matched", _disambig.get("raw", ""))
                 updated_spec = _assign_value(spec, field_name, _accept)
                 field_status[field_name] = FIELD_STATUS_ANSWERED
                 st.session_state["gf_field_status"] = field_status
@@ -1027,7 +1024,7 @@ def _render_field_card(
                 field_name, raw_value, meta, valid_options
             )
             if needs_disambig:
-                st.warning(disambig_msg)
+                st.warning(f'Did you mean "{disambig_msg}"?')
                 # Store pending disambiguation — user must confirm on next render
                 st.session_state[f"disambig_{field_name}"] = {
                     "raw": raw_value,

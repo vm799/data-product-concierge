@@ -1438,12 +1438,13 @@ def render_conversation(
 
             if concierge and not is_preview:
                 try:
-                    result = _run_async(concierge.chat_turn(
-                        user_message=user_input,
-                        history=st.session_state.chat_history[:-1],
-                        spec=spec,
-                        valid_options=valid_options,
-                    ))
+                    with st.spinner("Thinking…"):
+                        result = _run_async(concierge.chat_turn(
+                            user_message=user_input,
+                            history=st.session_state.chat_history[:-1],
+                            spec=spec,
+                            valid_options=valid_options,
+                        ))
                     result.setdefault("field_status", field_status)
                     result.setdefault("trigger_handover", False)
                 except asyncio.TimeoutError:
