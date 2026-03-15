@@ -1366,6 +1366,234 @@ def inject_styles():
             padding: 6px 12px;
         }
     }
+
+    /* ============================================================================
+       FOCUS STATES & KEYBOARD ACCESSIBILITY
+       ============================================================================ */
+
+    /* Remove default browser outline; replace with teal ring */
+    .stTextInput input:focus,
+    .stTextArea textarea:focus,
+    .stSelectbox select:focus,
+    .stDateInput input:focus {
+        outline: none !important;
+        border-color: var(--teal) !important;
+        box-shadow: 0 0 0 3px rgba(0, 194, 203, 0.20) !important;
+        transition: box-shadow 0.15s ease, border-color 0.15s ease !important;
+    }
+
+    /* Pill buttons — keyboard focus ring */
+    button:focus-visible {
+        outline: 2px solid var(--teal) !important;
+        outline-offset: 2px !important;
+    }
+
+    /* Input label glow when field is focused (parent highlight) */
+    .stTextInput:focus-within label,
+    .stTextArea:focus-within label {
+        color: var(--teal) !important;
+        transition: color 0.15s ease !important;
+    }
+
+    /* ============================================================================
+       FIELD ANIMATION & TRANSITIONS
+       ============================================================================ */
+
+    /* Smooth appear for suggestions, cards, new content */
+    .dpc-card,
+    .dpc-concierge {
+        animation: dpc-fadein 0.25s ease both !important;
+    }
+
+    @keyframes dpc-fadein {
+        from { opacity: 0; transform: translateY(4px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Spec panel field rows — subtle hover highlight */
+    .dpc-spec-row:hover {
+        background: rgba(0, 194, 203, 0.04) !important;
+        border-radius: 4px !important;
+    }
+
+    /* Progress bar — smooth fill transition */
+    .stProgress > div > div > div > div {
+        background: linear-gradient(90deg, var(--teal), #4DD9C0) !important;
+        transition: width 0.4s ease !important;
+        border-radius: 4px !important;
+    }
+
+    /* ============================================================================
+       PILL BUTTON IMPROVEMENTS
+       ============================================================================ */
+
+    /* Selected pill state — teal fill with dark text */
+    button[data-pill-selected="true"],
+    .dpc-pill-selected {
+        background-color: var(--teal) !important;
+        color: #0D1B2A !important;
+        border-color: var(--teal) !important;
+        font-weight: 700 !important;
+    }
+
+    /* Pill hover state */
+    .dpc-pill-btn:hover,
+    div[data-testid="column"] .stButton > button:hover {
+        border-color: var(--teal) !important;
+        color: var(--teal) !important;
+        transition: all 0.12s ease !important;
+    }
+
+    /* ============================================================================
+       SMART SUGGESTION BANNERS
+       ============================================================================ */
+
+    .dpc-suggestion {
+        background: rgba(245, 166, 35, 0.08) !important;
+        border-left: 3px solid #F5A623 !important;
+        border-radius: 0 8px 8px 0 !important;
+        padding: .6rem .9rem !important;
+        margin: .5rem 0 !important;
+        animation: dpc-fadein 0.2s ease both !important;
+    }
+
+    /* ============================================================================
+       CHAT INPUT UX
+       ============================================================================ */
+
+    /* Chat input container — teal focus ring */
+    [data-testid="stChatInput"] textarea:focus {
+        border-color: var(--teal) !important;
+        box-shadow: 0 0 0 3px rgba(0, 194, 203, 0.15) !important;
+    }
+
+    /* Chat messages — alternating subtle backgrounds */
+    [data-testid="stChatMessage"]:nth-child(even) {
+        background: rgba(240, 244, 248, 0.5) !important;
+        border-radius: 12px !important;
+    }
+
+    /* ============================================================================
+       MOBILE RESPONSIVE LAYOUT
+       ============================================================================ */
+
+    @media (max-width: 768px) {
+        /* Stack the two-column chat + spec layout */
+        .dpc-chat-col,
+        .dpc-spec-col {
+            width: 100% !important;
+            flex: none !important;
+        }
+
+        /* Reduce card padding on mobile */
+        .dpc-card {
+            padding: 1rem !important;
+            margin-bottom: .75rem !important;
+        }
+
+        /* Make progress bar steps wrap gracefully */
+        div.prog-nav > div[data-testid="columns"] {
+            flex-wrap: wrap !important;
+            gap: .5rem !important;
+        }
+
+        /* Sidebar: auto-collapse on mobile */
+        section[data-testid="stSidebar"] {
+            min-width: 0 !important;
+        }
+
+        /* Full-width buttons on mobile */
+        .stButton > button {
+            width: 100% !important;
+        }
+
+        /* Hero headline — smaller on mobile */
+        h1 {
+            font-size: 1.8rem !important;
+        }
+    }
+
+    @media (max-width: 480px) {
+        /* Very small screens — simplify pill grids to 2 columns */
+        div[data-testid="column"]:nth-child(3) {
+            display: none !important;
+        }
+    }
+
+    /* ============================================================================
+       SIDEBAR DEMO MODE BADGE
+       ============================================================================ */
+
+    /* Demo mode toggle — gold tint when active */
+    [data-testid="stSidebar"] .stToggle[data-value="true"] label {
+        color: #F5A623 !important;
+    }
+
+    /* ============================================================================
+       SCROLLBAR STYLING
+       ============================================================================ */
+
+    ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+        background: rgba(13, 27, 42, 0.15);
+        border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        background: rgba(0, 194, 203, 0.4);
+    }
+
+    /* ============================================================================
+       AUTO-FOCUS HELPER — chat input refocus after bot response
+       ============================================================================ */
+
+    /* This class is added via JS after each bot message */
+    .dpc-refocus-target {
+        scroll-margin-top: 80px;
+    }
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)
+
+
+def inject_chat_autofocus() -> None:
+    """
+    Inject JS to auto-focus the Streamlit chat input after bot responds.
+    Call this at the end of the conversation render loop.
+    """
+    import streamlit as st
+    st.components.v1.html(
+        "<script>"
+        "try {"
+        "  var inp = window.parent.document.querySelector('[data-testid=\"stChatInputTextArea\"]');"
+        "  if (inp) { inp.focus(); }"
+        "} catch(e) {}"
+        "</script>",
+        height=0,
+    )
+
+
+def inject_keyboard_submit() -> None:
+    """
+    Inject JS so Cmd+Enter (Mac) / Ctrl+Enter (Win) submits the active form.
+    Call this at the top of pages with primary action buttons.
+    """
+    import streamlit as st
+    st.components.v1.html(
+        "<script>"
+        "try {"
+        "  document.addEventListener('keydown', function(e) {"
+        "    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {"
+        "      var btns = window.parent.document.querySelectorAll('[data-testid=\"baseButton-primary\"]');"
+        "      if (btns.length > 0) { btns[btns.length-1].click(); }"
+        "    }"
+        "  }, {once: true});"
+        "} catch(e) {}"
+        "</script>",
+        height=0,
+    )

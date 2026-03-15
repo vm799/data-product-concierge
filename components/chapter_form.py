@@ -60,7 +60,7 @@ CHAPTERS = {
     2: {
         "title": "Classification",
         "description": "Business domain and data classification",
-        "fields": ["domain", "sub_domain", "data_classification", "tags"],
+        "fields": ["domain", "sub_domain", "data_classification", "tags", "asset_type", "collibra_community"],
     },
     3: {
         "title": "Governance",
@@ -72,6 +72,8 @@ CHAPTERS = {
             "data_steward_email",
             "certifying_officer_email",
             "last_certified_date",
+            "review_cycle",
+            "incident_contact",
         ],
     },
     4: {
@@ -86,6 +88,13 @@ CHAPTERS = {
             "source_systems",
             "update_frequency",
             "schema_location",
+            "materialization_type",
+            "snowflake_role",
+            "refresh_cron",
+            "column_definitions",
+            "sample_query",
+            "lineage_upstream",
+            "lineage_downstream",
         ],
     },
     5: {
@@ -96,11 +105,155 @@ CHAPTERS = {
             "consumer_teams",
             "sla_tier",
             "business_criticality",
+            "delivery_method",
             "cost_centre",
             "related_reports",
         ],
     },
 }
+
+
+# ============================================================================
+# FIELD INTERDEPENDENCY RULES
+# When a field changes, these rules suggest related field values.
+# Format: {trigger_field: {trigger_value: [rule_dict, ...]}}
+# rule_dict keys: action, field, value/values, message
+# ============================================================================
+FIELD_RULES: Dict[str, Dict] = {
+    "pii_flag": {
+        True: [
+            {"action": "add_to_list", "field": "regulatory_scope", "value": "GDPR",
+             "message": "PII data must comply with GDPR — added to Regulatory Scope."},
+            {"action": "suggest_text", "field": "encryption_standard", "value": "AES-256",
+             "message": "PII data should be encrypted with AES-256 at minimum."},
+            {"action": "suggest_text", "field": "retention_period", "value": "6 years",
+             "message": "GDPR requires a defined retention period. 6 years is typical for financial PII."},
+        ],
+    },
+    "data_classification": {
+        "Confidential": [
+            {"action": "suggest_text", "field": "encryption_standard", "value": "AES-256",
+             "message": "Confidential data requires AES-256 encryption as a minimum standard."},
+            {"action": "suggest_enum", "field": "access_level", "value": "Restricted",
+             "message": "Confidential data should have Restricted or higher access level."},
+        ],
+        "Public": [
+            {"action": "suggest_enum", "field": "access_level", "value": "Open",
+             "message": "Public data can use Open access level — no approval required."},
+        ],
+        "Restricted": [
+            {"action": "suggest_enum", "field": "access_level", "value": "Confidential",
+             "message": "Restricted data typically requires Confidential access control."},
+        ],
+    },
+    "domain": {
+        "Sustainable Investing": [
+            {"action": "add_to_list", "field": "regulatory_scope", "value": "SFDR",
+             "message": "ESG/Sustainable Investing data typically falls under SFDR reporting requirements."},
+            {"action": "add_to_list", "field": "regulatory_scope", "value": "EU Taxonomy",
+             "message": "EU Taxonomy disclosure is required for sustainable investment products."},
+            {"action": "add_to_list", "field": "regulatory_scope", "value": "TCFD",
+             "message": "TCFD climate-related financial disclosures are standard for ESG products."},
+        ],
+        "Risk & Analytics": [
+            {"action": "add_to_list", "field": "regulatory_scope", "value": "BCBS 239",
+             "message": "Risk data aggregation is governed by BCBS 239 — required for risk products."},
+            {"action": "add_to_list", "field": "regulatory_scope", "value": "MiFID II",
+             "message": "MiFID II governs risk data used in trading and investment decisions."},
+        ],
+        "Client Data": [
+            {"action": "add_to_list", "field": "regulatory_scope", "value": "GDPR",
+             "message": "Client data falls under GDPR — added to regulatory scope."},
+            {"action": "add_to_list", "field": "regulatory_scope", "value": "MiFID II",
+             "message": "Client data used in investment services requires MiFID II compliance."},
+            {"action": "suggest_bool", "field": "pii_flag", "value": True,
+             "message": "Client data usually contains PII — consider flagging pii_flag as Yes."},
+        ],
+        "Market Data": [
+            {"action": "add_to_list", "field": "regulatory_scope", "value": "MiFID II",
+             "message": "Market data distribution is governed by MiFID II."},
+        ],
+        "Compliance": [
+            {"action": "suggest_enum", "field": "data_classification", "value": "Confidential",
+             "message": "Compliance data is typically Confidential by default."},
+        ],
+    },
+    "update_frequency": {
+        "Real-time": [
+            {"action": "suggest_enum", "field": "sla_tier", "value": "Gold (99.9%)",
+             "message": "Real-time data products require Gold SLA tier (99.9% uptime)."},
+            {"action": "suggest_enum", "field": "materialization_type", "value": "Dynamic Table",
+             "message": "Real-time refresh is best implemented as a Snowflake Dynamic Table."},
+        ],
+        "Daily": [
+            {"action": "suggest_enum", "field": "materialization_type", "value": "Table",
+             "message": "Daily batch refresh typically uses a standard Snowflake Table."},
+        ],
+    },
+}
+
+
+def _get_field_rules(field_name: str, new_value) -> List[Dict]:
+    """Return applicable rules for a field value change. Skips dismissed rules."""
+    rules = FIELD_RULES.get(field_name, {})
+    if isinstance(rules, dict):
+        rule_list = rules.get(new_value, [])
+    else:
+        rule_list = []
+    dismissed = st.session_state.get("dismissed_suggestions", set())
+    return [r for r in rule_list if f"{field_name}__{r['field']}" not in dismissed]
+
+
+def _apply_suggestion(rule: Dict, spec: DataProductSpec) -> DataProductSpec:
+    """Apply a single suggestion rule to the spec."""
+    field = rule["field"]
+    action = rule["action"]
+    value = rule.get("value")
+
+    current = getattr(spec, field, None)
+
+    if action == "add_to_list":
+        lst = list(current) if current else []
+        if value not in lst:
+            lst.append(value)
+        spec = spec.model_copy(update={field: lst})
+    elif action in ("suggest_text", "suggest_enum"):
+        if not current:  # Only apply if field is currently empty
+            spec = spec.model_copy(update={field: value})
+    elif action == "suggest_bool":
+        if current is None:
+            spec = spec.model_copy(update={field: value})
+
+    return spec
+
+
+def _render_suggestions(active_suggestions: List[Dict], spec: DataProductSpec) -> DataProductSpec:
+    """Render gold suggestion banners. Returns potentially modified spec."""
+    for rule in active_suggestions:
+        key = f"{rule.get('_trigger_field')}__{rule['field']}"
+        st.markdown(
+            f'<div style="background:rgba(245,166,35,.1);border-left:3px solid #F5A623;'
+            f'padding:.5rem .75rem;margin:.5rem 0 .25rem;border-radius:0 6px 6px 0;">'
+            f'<span style="color:#F5A623;font-weight:700;font-size:.8rem;">⚡ Smart suggestion</span>'
+            f'<span style="color:var(--text-secondary);font-size:.82rem;margin-left:.5rem;">{rule["message"]}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            if st.button("✓ Apply", key=f"apply_sugg_{key}", use_container_width=True, type="primary"):
+                spec = _apply_suggestion(rule, spec)
+                if "dismissed_suggestions" not in st.session_state:
+                    st.session_state.dismissed_suggestions = set()
+                st.session_state.dismissed_suggestions.add(key)
+                st.rerun()
+        with col2:
+            if st.button("✕ Dismiss", key=f"dismiss_sugg_{key}", use_container_width=True):
+                if "dismissed_suggestions" not in st.session_state:
+                    st.session_state.dismissed_suggestions = set()
+                st.session_state.dismissed_suggestions.add(key)
+                st.rerun()
+    return spec
 
 
 def render_progress_bar(current_chapter: int, chapter_names: List[str]):
@@ -507,6 +660,11 @@ def render_chapter(
     """
     chapter_data = CHAPTERS[chapter]
 
+    # Snapshot spec at chapter entry to detect field changes for rule triggers
+    snapshot_key = f"_chapter_{chapter}_snapshot"
+    if snapshot_key not in st.session_state:
+        st.session_state[snapshot_key] = spec.model_dump()
+
     # Show concierge bubble
     st.markdown(
         f'<div class="dpc-concierge">{concierge_message}</div>',
@@ -849,7 +1007,169 @@ def render_chapter(
                 explanation,
             )
 
+        # ── Collibra registration fields ──────────────────────────────────────
+        elif field_name == "asset_type":
+            options = ["Data Product", "Data Set", "Report", "API", "Stream", "ML Model"]
+            spec.asset_type = _render_enum_field(
+                "Asset Type (Collibra)",
+                current_value,
+                field_name,
+                required,
+                path,
+                options,
+                explanation,
+            )
+
+        elif field_name == "collibra_community":
+            spec.collibra_community = _render_text_field(
+                "Collibra Community",
+                current_value,
+                field_name,
+                required,
+                path,
+                explanation,
+            )
+
+        # ── Governance cadence fields ─────────────────────────────────────────
+        elif field_name == "review_cycle":
+            options = ["Annual", "Semi-Annual", "Quarterly", "Monthly"]
+            spec.review_cycle = _render_enum_field(
+                "Review / Recertification Cycle",
+                current_value,
+                field_name,
+                required,
+                path,
+                options,
+                explanation,
+            )
+
+        elif field_name == "incident_contact":
+            spec.incident_contact = _render_email_field(
+                "Incident / On-Call Contact Email",
+                current_value,
+                field_name,
+                required,
+                path,
+                explanation,
+            )
+
+        # ── Snowflake build fields ────────────────────────────────────────────
+        elif field_name == "materialization_type":
+            options = ["Table", "View", "Materialized View", "Dynamic Table", "External Table"]
+            spec.materialization_type = _render_enum_field(
+                "Snowflake Materialization Type",
+                current_value,
+                field_name,
+                required,
+                path,
+                options,
+                explanation,
+            )
+
+        elif field_name == "snowflake_role":
+            spec.snowflake_role = _render_text_field(
+                "Snowflake Role (SELECT grant)",
+                current_value,
+                field_name,
+                required,
+                path,
+                explanation,
+            )
+
+        elif field_name == "refresh_cron":
+            spec.refresh_cron = _render_text_field(
+                "Refresh Schedule (cron expression)",
+                current_value,
+                field_name,
+                required,
+                path,
+                explanation,
+            )
+
+        elif field_name == "column_definitions":
+            # column_definitions is List[str] — render as a single multiline textarea
+            raw = "\n".join(current_value) if current_value else ""
+            new_raw = _render_text_field(
+                "Column Definitions (one column per line, e.g. ISSUER_ID VARCHAR NOT NULL)",
+                raw or None,
+                field_name,
+                required,
+                path,
+                explanation,
+                is_multiline=True,
+            )
+            if new_raw:
+                spec.column_definitions = [line.strip() for line in new_raw.split("\n") if line.strip()]
+
+        elif field_name == "sample_query":
+            spec.sample_query = _render_text_field(
+                "Sample Query",
+                current_value,
+                field_name,
+                required,
+                path,
+                explanation,
+                is_multiline=True,
+            )
+
+        elif field_name == "lineage_upstream":
+            raw = "\n".join(current_value) if current_value else ""
+            new_raw = _render_text_field(
+                "Upstream Dependencies (one per line)",
+                raw or None,
+                field_name,
+                required,
+                path,
+                explanation,
+                is_multiline=True,
+            )
+            if new_raw:
+                spec.lineage_upstream = [line.strip() for line in new_raw.split("\n") if line.strip()]
+
+        elif field_name == "lineage_downstream":
+            raw = "\n".join(current_value) if current_value else ""
+            new_raw = _render_text_field(
+                "Downstream Consumers (one per line)",
+                raw or None,
+                field_name,
+                required,
+                path,
+                explanation,
+                is_multiline=True,
+            )
+            if new_raw:
+                spec.lineage_downstream = [line.strip() for line in new_raw.split("\n") if line.strip()]
+
+        # ── Access & delivery ─────────────────────────────────────────────────
+        elif field_name == "delivery_method":
+            options = ["SQL Table", "SQL View", "REST API", "Kafka Topic", "File Export (S3/ADLS)", "GraphQL API"]
+            spec.delivery_method = _render_enum_field(
+                "Delivery Method",
+                current_value,
+                field_name,
+                required,
+                path,
+                options,
+                explanation,
+            )
+
         st.divider()
+
+    # ── Field interdependency suggestions ────────────────────────────────────
+    prev_snap = st.session_state.get(f"_chapter_{chapter}_snapshot", {})
+    active_suggestions = []
+    for field_name in chapter_data["fields"]:
+        new_val = getattr(spec, field_name, None)
+        old_val = prev_snap.get(field_name)
+        if new_val != old_val and new_val is not None:
+            rules = _get_field_rules(field_name, new_val)
+            for r in rules:
+                active_suggestions.append({**r, "_trigger_field": field_name})
+    if active_suggestions:
+        st.markdown("---")
+        spec = _render_suggestions(active_suggestions, spec)
+    # Update snapshot after rendering
+    st.session_state[f"_chapter_{chapter}_snapshot"] = spec.model_dump()
 
     # Navigation buttons
     col1, col2, col3 = st.columns([1, 2, 1])

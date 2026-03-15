@@ -34,7 +34,7 @@ import asyncio
 import json
 import re
 import random
-from typing import Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import quote
 
 import streamlit as st
@@ -379,6 +379,93 @@ BUSINESS_FLOW_ORDER = [
     "consumer_teams", "tags", "cost_centre", "related_reports",
 ]
 
+# ============================================================================
+# CONVERSATION TURN GROUPS
+# Instead of asking fields one-by-one, group related fields into logical turns.
+# Each turn asks 1–3 tightly related fields together to reduce conversation length.
+# ============================================================================
+TURN_GROUPS = [
+    {
+        "id": "identity",
+        "fields": ["name", "description", "business_purpose"],
+        "prompt": (
+            "Let's start with the basics. Tell me:\n\n"
+            "1. **What's it called?** (a clear 3–6 word name)\n"
+            "2. **What data does it contain?** (2–3 sentences)\n"
+            "3. **Why does it exist?** (the business problem it solves)\n\n"
+            "You can answer all three in one go, or just start with the name."
+        ),
+        "hint": "e.g. 'It's called ESG Scope 1 Emissions. It contains monthly carbon data from Bloomberg. We need it for SFDR reporting.'"
+    },
+    {
+        "id": "classification",
+        "fields": ["domain", "data_classification"],
+        "prompt": (
+            "Two quick classification questions:\n\n"
+            "1. **Which business domain?** (e.g. ESG, Risk, Client Data, Market Data, Compliance, Operations)\n"
+            "2. **Data classification?** (Public / Internal / Confidential / Restricted)\n\n"
+            "These determine who can find it and what security policies apply."
+        ),
+        "hint": "e.g. 'Sustainable Investing domain, Internal classification'"
+    },
+    {
+        "id": "regulatory",
+        "fields": ["regulatory_scope", "pii_flag"],
+        "prompt": (
+            "Now the regulatory side:\n\n"
+            "1. **Which regulations apply?** (GDPR, MiFID II, SFDR, EU Taxonomy, TCFD, BCBS 239, AIFMD, Solvency II, DORA)\n"
+            "2. **Does it contain PII?** (personally identifiable information — names, emails, IDs)\n\n"
+            "Say 'not sure' and I'll suggest based on your domain."
+        ),
+        "hint": "e.g. 'SFDR and EU Taxonomy apply, no PII'"
+    },
+    {
+        "id": "governance",
+        "fields": ["data_owner_name", "data_owner_email", "data_steward_email"],
+        "prompt": (
+            "Governance — who is accountable?\n\n"
+            "1. **Data Owner** — the person ultimately responsible (name + email)\n"
+            "2. **Data Steward** — day-to-day contact for quality/access issues (email)\n\n"
+            "If you're the owner, just say 'me' and I'll use your details."
+        ),
+        "hint": "e.g. 'Owner is Sarah Chen, sarah.chen@firm.com. Steward is marco.silva@firm.com'"
+    },
+    {
+        "id": "technical",
+        "fields": ["source_systems", "update_frequency", "schema_location"],
+        "prompt": (
+            "Technical details — or hand these to your data engineer:\n\n"
+            "1. **Source systems** — where does this data come from? (Bloomberg, MSCI, internal DWH, etc.)\n"
+            "2. **Update frequency** — Real-time / Daily / Weekly / Monthly / Ad-hoc\n"
+            "3. **Schema location** — Snowflake path (DB.SCHEMA.TABLE), if known\n\n"
+            "Not sure? Type 'hand over' and I'll send the tech fields to your engineer."
+        ),
+        "hint": "e.g. 'Bloomberg and MSCI, monthly updates, ANALYTICS_DB.ESG.SCOPE1_EU'"
+    },
+    {
+        "id": "access",
+        "fields": ["access_level", "sla_tier", "business_criticality"],
+        "prompt": (
+            "Almost done — access and SLA:\n\n"
+            "1. **Access level** — Open / Request-based / Restricted / Confidential\n"
+            "2. **SLA tier** — Gold (99.9%) / Silver (99.5%) / Bronze (99%) / None\n"
+            "3. **Business criticality** — Mission-critical / High / Medium / Low\n\n"
+            "These determine monitoring priority and incident response."
+        ),
+        "hint": "e.g. 'Request-based access, Gold SLA, mission-critical'"
+    },
+    {
+        "id": "consumers",
+        "fields": ["consumer_teams"],
+        "prompt": (
+            "Last one — who will use this data product?\n\n"
+            "Which teams should have access? (e.g. Portfolio Management, ESG Research, Client Reporting, Compliance, Risk)\n\n"
+            "You can name multiple teams."
+        ),
+        "hint": "e.g. 'Portfolio Management, ESG Research, and Compliance'"
+    },
+]
+
 # Which fields tech team fills (shown in handover)
 TECH_FLOW_ORDER = [
     "source_systems", "update_frequency", "schema_location",
@@ -626,6 +713,58 @@ def _preview_chat_turn(
             "is_complete": True,
         }
 
+    # ── Grouped turn extraction ───────────────────────────────────────────────
+    # Try to extract values for ALL fields in the current turn group at once
+    current_group = _current_turn_group(field_status)
+    if current_group and not _is_help_request(user_message) and not _is_skip_request(user_message) and not _is_na_request(user_message):
+        group_extracted = {}
+        for f in current_group["fields"]:
+            if field_status.get(f, FIELD_STATUS_PENDING) == FIELD_STATUS_PENDING:
+                attempt = _try_extract(user_message, f, valid_options)
+                if attempt is not None and attempt != [] and attempt != "":
+                    group_extracted[f] = attempt
+        if group_extracted:
+            # Apply group extractions to field_status and build response
+            new_status = dict(field_status)
+            new_status.update({f: FIELD_STATUS_ANSWERED for f in group_extracted})
+            filled_labels = [FIELD_REGISTRY.get(f, {}).get("label", f) for f in group_extracted]
+            remaining_in_group = [
+                f for f in current_group["fields"]
+                if new_status.get(f, FIELD_STATUS_PENDING) == FIELD_STATUS_PENDING
+            ]
+            if remaining_in_group:
+                next_label = FIELD_REGISTRY.get(remaining_in_group[0], {}).get("label", remaining_in_group[0])
+                response = (
+                    "Got it — captured **{}**. "
+                    "One more in this group: **{}** — {}"
+                ).format(
+                    ", ".join(filled_labels),
+                    next_label,
+                    FIELD_REGISTRY.get(remaining_in_group[0], {}).get("explanation", ""),
+                )
+            else:
+                next_group = None
+                for g in TURN_GROUPS:
+                    if g["id"] != current_group["id"] and not _all_group_fields_done(g, new_status):
+                        next_group = g
+                        break
+                if next_group:
+                    response = "✓ **{}** captured. Moving on — {}".format(
+                        ", ".join(filled_labels),
+                        next_group["prompt"],
+                    )
+                else:
+                    response = (
+                        "✓ **{}** captured. "
+                        "All business fields are complete! You can review the spec or hand over to the tech team."
+                    ).format(", ".join(filled_labels))
+            return {
+                "response": response,
+                "extracted": group_extracted,
+                "field_status": new_status,
+                "trigger_handover": False,
+            }
+
     # — Help / explain —
     if _is_help_request(user_message):
         reg = FIELD_REGISTRY.get(current_field, {})
@@ -730,6 +869,27 @@ def _next_field(new_status: dict, old_status: dict) -> Optional[str]:
         return pending[0]
     deferred = [f for f in BUSINESS_FLOW_ORDER if new_status.get(f) == FIELD_STATUS_DEFERRED]
     return deferred[0] if deferred else None
+
+
+def _current_turn_group(field_status: dict) -> Optional[dict]:
+    """
+    Return the first TURN_GROUPS entry that has at least one pending business field.
+    Returns None when all groups are complete.
+    """
+    for group in TURN_GROUPS:
+        for f in group["fields"]:
+            # Check if this field is pending (not answered, not_needed, not deferred)
+            if field_status.get(f, FIELD_STATUS_PENDING) == FIELD_STATUS_PENDING:
+                return group
+    return None
+
+
+def _all_group_fields_done(group: dict, field_status: dict) -> bool:
+    """True when every field in a turn group is answered, not_needed, or deferred."""
+    return all(
+        field_status.get(f, FIELD_STATUS_PENDING) != FIELD_STATUS_PENDING
+        for f in group["fields"]
+    )
 
 
 def _ask_field(field: str, valid_options: dict) -> str:
@@ -1119,16 +1279,22 @@ def render_conversation(
             parts.append("\n\nDoes that look right? Say **'looks good'** and I'll continue with the next fields.")
             opening = "".join(parts)
         else:
+            first_group = TURN_GROUPS[0]
+            first_group_prompt = first_group["prompt"]
+            if first_group.get("hint"):
+                first_group_prompt += "\n\n*Tip: {}*".format(first_group["hint"])
             opening = (
-                "Let's build your data product together.\n\n"
-                "**What would you call it, and what's it for?** "
-                "Speak naturally — I'll handle the structure.\n\n"
-                "At any point you can:\n"
+                "Let's build your data product together — I'll group related questions to keep this short (7 turns total).\n\n"
+                "At any point:\n"
                 "- Say **'help'** for an explanation of what I'm asking\n"
-                "- Say **'not needed'** if a field doesn't apply to your product\n"
+                "- Say **'not needed'** if a field doesn't apply\n"
                 "- Say **'skip'** to defer and come back later\n"
-                "- Say **'hand over'** to send the partial spec to your tech team"
+                "- Say **'hand over'** to send the partial spec to your tech team\n\n"
+                "---\n\n"
+                + first_group_prompt
             )
+            # Mark first group as shown so the render loop doesn't re-inject it
+            st.session_state["_group_{}_shown".format(first_group["id"])] = True
         st.session_state.chat_history = [{"role": "assistant", "content": opening}]
 
     # Compute state
@@ -1194,6 +1360,27 @@ def render_conversation(
                 st.session_state.show_handover = True
                 st.rerun()
         else:
+            # Show grouped turn prompt when a new group becomes active
+            current_group = _current_turn_group(field_status)
+            group_shown_key = "_group_{}_shown".format(current_group["id"]) if current_group else None
+            if current_group and not st.session_state.get(group_shown_key):
+                st.session_state[group_shown_key] = True
+                group_question = current_group["prompt"]
+                if current_group.get("hint"):
+                    group_question += "\n\n*Tip: {}*".format(current_group["hint"])
+                # Only inject into history if the last message isn't already this group prompt
+                history = st.session_state.get("chat_history", [])
+                last_is_group = (
+                    history
+                    and history[-1].get("role") == "assistant"
+                    and history[-1].get("content", "").startswith(current_group["prompt"][:40])
+                )
+                if not last_is_group:
+                    st.session_state.chat_history.append({
+                        "role": "assistant",
+                        "content": group_question,
+                    })
+                    st.rerun()
             # Option pills for current field
             _render_option_pills(current_field, valid_options)
 

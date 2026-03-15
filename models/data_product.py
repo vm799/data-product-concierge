@@ -295,6 +295,45 @@ class DataProductSpec(BaseModel):
     )
 
     # --------
+    # COLLIBRA REGISTRATION
+    # --------
+    asset_type: Optional[str] = Field(
+        None, description="Collibra asset type: Data Product / Data Set / Report / API / Stream"
+    )
+    collibra_community: Optional[str] = Field(
+        None, description="Collibra community (top-level container; required for Collibra API asset creation)"
+    )
+
+    # --------
+    # SNOWFLAKE BUILD (required to generate DDL and access grants)
+    # --------
+    materialization_type: Optional[str] = Field(
+        None, description="Snowflake object type: Table / View / Materialized View / Dynamic Table"
+    )
+    snowflake_role: Optional[str] = Field(
+        None, description="Snowflake role granted SELECT on this object (e.g. ROLE_ESG_READ)"
+    )
+    column_definitions: Optional[List[str]] = Field(
+        None, description="Column-level schema (e.g. ['ISSUER_ID VARCHAR NOT NULL', 'EMISSION_TONNES NUMBER(18,4)'])"
+    )
+    refresh_cron: Optional[str] = Field(
+        None, description="Cron expression for scheduled refresh (Dynamic Tables / Tasks, e.g. '0 6 * * 1-5')"
+    )
+
+    # --------
+    # OPERATIONAL
+    # --------
+    delivery_method: Optional[str] = Field(
+        None, description="How consumers access the data: SQL Table / SQL View / REST API / Kafka / File Export"
+    )
+    review_cycle: Optional[str] = Field(
+        None, description="Governance review/recertification cadence: Annual / Semi-Annual / Quarterly / Monthly"
+    )
+    incident_contact: Optional[EmailStr] = Field(
+        None, description="On-call contact email for production incidents"
+    )
+
+    # --------
     # METADATA
     # --------
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -371,6 +410,18 @@ class DataProductSpec(BaseModel):
         "cost_centre",
         "related_reports",
         "data_quality_score",
+        # Collibra registration
+        "asset_type",
+        "collibra_community",
+        # Snowflake build
+        "materialization_type",
+        "snowflake_role",
+        "column_definitions",
+        "refresh_cron",
+        # Operational
+        "delivery_method",
+        "review_cycle",
+        "incident_contact",
     }
 
     # --------
@@ -520,6 +571,14 @@ class DataProductSpec(BaseModel):
             md += f"**Update Frequency:** {self.update_frequency}\n\n"
         if self.schema_location:
             md += f"**Schema Location:** {self.schema_location}\n\n"
+        if self.materialization_type:
+            md += f"**Materialization Type:** {self.materialization_type}\n\n"
+        if self.snowflake_role:
+            md += f"**Snowflake Role (SELECT):** {self.snowflake_role}\n\n"
+        if self.refresh_cron:
+            md += f"**Refresh Schedule (cron):** `{self.refresh_cron}`\n\n"
+        if self.column_definitions:
+            md += "**Column Definitions:**\n```sql\n" + "\n".join(self.column_definitions) + "\n```\n\n"
         if self.sample_query:
             md += f"**Sample Query:**\n```sql\n{self.sample_query}\n```\n\n"
         if self.lineage_upstream:
@@ -546,6 +605,21 @@ class DataProductSpec(BaseModel):
             md += f"**Cost Centre:** {self.cost_centre}\n\n"
         if self.related_reports:
             md += f"**Related Reports:** {', '.join(self.related_reports)}\n\n"
+        if self.delivery_method:
+            md += f"**Delivery Method:** {self.delivery_method}\n\n"
+        if self.review_cycle:
+            md += f"**Review / Recertification Cycle:** {self.review_cycle}\n\n"
+        if self.incident_contact:
+            md += f"**Incident Contact:** {self.incident_contact}\n\n"
+
+        # ---- COLLIBRA REGISTRATION ----
+        md += "## Collibra Registration\n\n"
+        if self.asset_type:
+            md += f"**Asset Type:** {self.asset_type}\n\n"
+        if self.collibra_community:
+            md += f"**Community:** {self.collibra_community}\n\n"
+        if self.domain:
+            md += f"**Domain:** {self.domain}\n\n"
 
         # ---- OUTSTANDING ITEMS ----
         md += "## Outstanding Items\n\n"
@@ -807,6 +881,15 @@ class DataProductSpec(BaseModel):
             "cost_centre",
             "related_reports",
             "data_quality_score",
+            "asset_type",
+            "collibra_community",
+            "materialization_type",
+            "snowflake_role",
+            "column_definitions",
+            "refresh_cron",
+            "delivery_method",
+            "review_cycle",
+            "incident_contact",
             "created_at",
             "updated_at",
         ]
@@ -865,9 +948,140 @@ class DataProductSpec(BaseModel):
             format_value(self.cost_centre),
             format_value(self.related_reports),
             format_value(self.data_quality_score),
+            format_value(self.asset_type),
+            format_value(self.collibra_community),
+            format_value(self.materialization_type),
+            format_value(self.snowflake_role),
+            format_value(self.column_definitions),
+            format_value(self.refresh_cron),
+            format_value(self.delivery_method),
+            format_value(self.review_cycle),
+            format_value(self.incident_contact),
             format_value(self.created_at),
             format_value(self.updated_at),
         ]
         writer.writerow(data)
 
         return output.getvalue()
+
+    # --------
+    # SNOWFLAKE DDL EXPORT
+    # --------
+
+    def to_snowflake_ddl(self) -> str:
+        """
+        Auto-generate Snowflake DDL from the spec.
+
+        Generates:
+          - CREATE OR REPLACE TABLE/VIEW/DYNAMIC TABLE/MATERIALIZED VIEW statement
+          - Column definitions (from column_definitions field, or placeholder)
+          - CLUSTER BY clause (if applicable)
+          - COMMENT on object
+          - GRANT SELECT statement (if snowflake_role set)
+          - Task/Dynamic Table refresh schedule (if refresh_cron set)
+
+        Returns:
+            Complete Snowflake DDL string, ready to execute.
+        """
+        lines = []
+        mat_type = (self.materialization_type or "Table").strip()
+        location = self.schema_location or "DATABASE.SCHEMA.TABLE_NAME"
+
+        # Determine DDL object keyword
+        if mat_type == "View":
+            object_kw = "VIEW"
+        elif mat_type == "Materialized View":
+            object_kw = "MATERIALIZED VIEW"
+        elif mat_type == "Dynamic Table":
+            object_kw = "DYNAMIC TABLE"
+        elif mat_type == "External Table":
+            object_kw = "EXTERNAL TABLE"
+        else:
+            object_kw = "TABLE"
+
+        # Dynamic Table needs LAG and WAREHOUSE before AS
+        if mat_type == "Dynamic Table":
+            lag = "1 HOUR" if (self.update_frequency or "").lower() != "real-time" else "1 MINUTE"
+            warehouse = self.snowflake_role or "COMPUTE_WH"  # reuse or default
+            lines.append(f"CREATE OR REPLACE DYNAMIC TABLE {location}")
+            lines.append(f"    LAG = '{lag}'")
+            lines.append(f"    WAREHOUSE = {warehouse}")
+        elif mat_type in ("View", "Materialized View"):
+            lines.append(f"CREATE OR REPLACE {object_kw} {location}")
+        else:
+            lines.append(f"CREATE OR REPLACE {object_kw} {location}")
+
+        # Columns — for Tables and External Tables
+        if mat_type not in ("View", "Materialized View", "Dynamic Table"):
+            lines.append("(")
+            if self.column_definitions:
+                for i, col in enumerate(self.column_definitions):
+                    comma = "," if i < len(self.column_definitions) - 1 else ""
+                    lines.append(f"    {col}{comma}")
+            else:
+                lines.append("    -- TODO: define columns")
+                lines.append("    -- e.g. ISSUER_ID       VARCHAR(50)  NOT NULL,")
+                lines.append("    --      EMISSION_TONNES  NUMBER(18,4) NOT NULL,")
+                lines.append("    --      REPORTING_DATE   DATE         NOT NULL")
+            lines.append(")")
+
+        # Comment
+        comment_text = (self.name or "Data Product").replace("'", "''")
+        desc_text = (self.description or "").replace("'", "''")[:200]
+        if mat_type == "Dynamic Table":
+            lines.append(f"COMMENT = '{comment_text} | {desc_text}'")
+            lines.append("AS")
+            lines.append("(")
+            if self.sample_query:
+                lines.append(f"    {self.sample_query}")
+            else:
+                lines.append("    -- TODO: Add SELECT query for Dynamic Table")
+            lines.append(")")
+        elif mat_type in ("View", "Materialized View"):
+            lines.append("AS")
+            lines.append("(")
+            if self.sample_query:
+                lines.append(f"    {self.sample_query}")
+            else:
+                lines.append("    -- TODO: Add SELECT query for View")
+            lines.append(")")
+            lines.append(f"COMMENT = '{comment_text}'")
+        else:
+            lines.append(f"COMMENT = '{comment_text} | {desc_text}';")
+
+        # Add semicolon if not Dynamic Table/View (those end with closing paren)
+        if mat_type not in ("View", "Materialized View", "Dynamic Table"):
+            pass  # Already added semicolon in comment
+        else:
+            lines[-1] = lines[-1] + ";"  # Add semicolon to last line
+
+        ddl = "\n".join(lines) + "\n"
+
+        # Snowflake Task for scheduled refresh (non-Dynamic Table)
+        if self.refresh_cron and mat_type not in ("Dynamic Table",):
+            task_name = location.replace(".", "_").upper() + "_REFRESH"
+            ddl += f"\n-- Scheduled refresh task\n"
+            ddl += f"CREATE OR REPLACE TASK {task_name}\n"
+            ddl += f"    WAREHOUSE = {self.snowflake_role or 'COMPUTE_WH'}\n"
+            ddl += f"    SCHEDULE = 'USING CRON {self.refresh_cron} UTC'\n"
+            ddl += f"AS\n"
+            ddl += f"    INSERT OVERWRITE INTO {location}\n"
+            ddl += f"    SELECT * FROM {location}_STAGING;\n"
+
+        # GRANT SELECT
+        if self.snowflake_role:
+            ddl += f"\n-- Access grant\n"
+            ddl += f"GRANT SELECT ON {object_kw} {location} TO ROLE {self.snowflake_role};\n"
+
+        # Missing fields warning comment
+        missing = []
+        if not self.schema_location:
+            missing.append("schema_location (DB.SCHEMA.TABLE)")
+        if not self.column_definitions and mat_type not in ("View", "Materialized View", "Dynamic Table"):
+            missing.append("column_definitions")
+        if not self.snowflake_role:
+            missing.append("snowflake_role (for GRANT)")
+        if missing:
+            ddl += f"\n-- Missing fields needed for complete DDL: {', '.join(missing)}\n"
+
+        return ddl

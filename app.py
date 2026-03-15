@@ -99,6 +99,26 @@ from models.data_product import DataProductSpec, AssetResult
 from components.styles import inject_styles
 from components import search_bar, asset_cards, ingredient_label, chapter_form, handoff_summary, conversation_create
 
+# Optional components — available once agents have written them
+try:
+    from components.snowflake_preview import render_snowflake_preview
+    _HAS_SNOWFLAKE_PREVIEW = True
+except ImportError:
+    _HAS_SNOWFLAKE_PREVIEW = False
+
+try:
+    from models.draft_manager import DraftManager
+    from components.draft_banner import render_recent_drafts, render_autosave_indicator
+    _HAS_DRAFT_MANAGER = True
+except ImportError:
+    _HAS_DRAFT_MANAGER = False
+
+try:
+    from components.styles import inject_chat_autofocus, inject_keyboard_submit
+    _HAS_UX_HELPERS = True
+except ImportError:
+    _HAS_UX_HELPERS = False
+
 if LIVE_CAPABLE:
     from connectors.apim_auth import (
         APIMTokenManager, APIMAuthError, SessionExpiredError, get_or_create_token_manager,
@@ -108,6 +128,52 @@ if LIVE_CAPABLE:
     from core.collibra_client import CollibraClient
     from agents.concierge import DataProductConcierge
 from core.utils import set_state, format_error
+
+
+# ---------------------------------------------------------------------------
+# Draft manager singleton
+# ---------------------------------------------------------------------------
+_draft_manager_instance = None
+
+def _get_draft_manager():
+    """Return a DraftManager instance, or None if unavailable."""
+    global _draft_manager_instance
+    if not _HAS_DRAFT_MANAGER:
+        return None
+    if _draft_manager_instance is None:
+        _draft_manager_instance = DraftManager()
+    return _draft_manager_instance
+
+
+def _autosave_draft() -> None:
+    """
+    Persist the current spec + navigation state to Postgres.
+    Silently no-ops if draft manager is unavailable or in demo mode.
+    Updates session_state.draft_id and session_state.last_saved_ts.
+    """
+    dm = _get_draft_manager()
+    if dm is None or not dm.is_available or _demo_active():
+        return
+    spec = st.session_state.get("spec")
+    if spec is None:
+        return
+    try:
+        user_id = os.getenv("USER_EMAIL") or os.getenv("USER_DISPLAY_NAME") or "anonymous"
+        display_name = spec.name or "Untitled draft"
+        draft_id = run_async(dm.save(
+            draft_id=st.session_state.get("draft_id"),
+            user_id=user_id,
+            display_name=display_name,
+            spec_dict=spec.model_dump(mode="json"),
+            step=st.session_state.get("step", "search"),
+            chapter=st.session_state.get("chapter", 1),
+            path=st.session_state.get("path"),
+        ))
+        if draft_id:
+            st.session_state.draft_id = draft_id
+            st.session_state.last_saved_ts = datetime.now().strftime("%H:%M:%S")
+    except Exception:
+        pass  # Never crash the app on autosave failure
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +346,8 @@ def initialize_session_state():
         "demo_mode": not LIVE_CAPABLE,  # True = show sample data; togglable in sidebar
         "audit_log": [],
         "_prev_step": None,
+        "draft_id": None,
+        "last_saved_ts": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -310,6 +378,28 @@ def handle_auth():
 
 
 def handle_search():
+    # ── Draft resume (live mode only) ─────────────────────────────────────────
+    if not _demo_active() and _HAS_DRAFT_MANAGER:
+        dm = _get_draft_manager()
+        if dm and dm.is_available:
+            user_id = os.getenv("USER_EMAIL") or os.getenv("USER_DISPLAY_NAME") or "anonymous"
+            drafts = run_async(dm.list_user_drafts(user_id, limit=5))
+            if drafts:
+                resumed_id = render_recent_drafts(drafts)
+                if resumed_id:
+                    record = run_async(dm.load(resumed_id))
+                    if record:
+                        try:
+                            st.session_state.spec = DataProductSpec(**record.spec_dict)
+                        except Exception:
+                            st.session_state.spec = DataProductSpec(name="", description="", business_purpose="")
+                        st.session_state.step = record.step
+                        st.session_state.chapter = record.chapter
+                        st.session_state.path = record.path
+                        st.session_state.draft_id = record.draft_id
+                        _audit("draft_resumed", f"resumed draft {record.draft_id[:8]}")
+                        st.rerun()
+
     query, submitted = search_bar.render_hero()
 
     if _demo_active():
@@ -462,6 +552,21 @@ def _demo_field_explanations() -> dict:
         "business_criticality": "How critical this data is to operations — Mission-critical gets priority incident response.",
         "cost_centre": "For internal chargeback and budgeting.",
         "related_reports": "Downstream reports and dashboards that depend on this data product.",
+        # Collibra registration
+        "asset_type": "Collibra requires an asset type to correctly classify this in the catalogue. 'Data Product' is the most common choice for governed analytical outputs.",
+        "collibra_community": "The Collibra community is the top-level grouping above domain. Without it, the Collibra API cannot create the asset. Ask your Collibra admin if unsure.",
+        # Snowflake build
+        "materialization_type": "How this data product is physically built in Snowflake. Tables offer best query performance; Dynamic Tables auto-refresh on schedule; Views have no storage cost.",
+        "snowflake_role": "The Snowflake RBAC role that will be granted SELECT on this object. e.g. ROLE_ESG_READ, ROLE_RISK_ANALYST. Align with your security team's naming convention.",
+        "column_definitions": "The DDL-level column schema. Providing this lets the tech team generate the CREATE TABLE/VIEW statement directly. One column definition per line.",
+        "refresh_cron": "For Dynamic Tables or Snowflake Tasks, the cron schedule in '0 6 * * 1-5' format (UTC). Leave blank for static tables or Views.",
+        "sample_query": "A representative SQL query showing how a consumer would access this data. Helps consumers validate the access pattern and the tech team test the implementation.",
+        "lineage_upstream": "The source systems or upstream data products that feed this one. Essential for impact analysis when a source changes.",
+        "lineage_downstream": "Reports, dashboards, or downstream data products that depend on this one. Used for change impact notifications.",
+        # Operational
+        "delivery_method": "How consumers will physically access the data — a SQL table is the most common for Snowflake; REST API for real-time; Kafka for streaming.",
+        "review_cycle": "How often this data product's governance, quality, and ownership should be reviewed. Annual is minimum for regulatory data; Quarterly for mission-critical.",
+        "incident_contact": "The on-call or team inbox to contact when this data product has a production incident. Can be an individual or a distribution list.",
     }
 
 
@@ -481,6 +586,10 @@ def _demo_valid_options() -> dict:
         "sub_domain": ["Climate & Carbon", "Biodiversity", "Social Impact", "Governance Metrics"],
         "source_systems": ["Bloomberg", "MSCI", "Refinitiv", "FactSet", "Internal DWH", "Corporate Filings DB"],
         "consumer_teams": ["Portfolio Management", "ESG Research", "Client Reporting", "Compliance", "Risk", "Operations"],
+        "asset_type": ["Data Product", "Data Set", "Report", "API", "Stream", "ML Model"],
+        "materialization_type": ["Table", "View", "Materialized View", "Dynamic Table", "External Table"],
+        "delivery_method": ["SQL Table", "SQL View", "REST API", "Kafka Topic", "File Export (S3/ADLS)", "GraphQL API"],
+        "review_cycle": ["Annual", "Semi-Annual", "Quarterly", "Monthly"],
     }
 
 
@@ -523,6 +632,7 @@ def handle_chapter_form(path_label: str):
     if updated_spec:
         _audit("chapter_save", f"ch{chapter} '{chapter_name}' saved")
         st.session_state.spec = updated_spec
+        _autosave_draft()
 
     if nav_action == "next" and chapter < 5:
         st.session_state.chapter = chapter + 1
@@ -554,6 +664,7 @@ def handle_create_conversation():
 
     if updated_spec:
         st.session_state.spec = updated_spec
+        _autosave_draft()
 
     if is_complete:
         _audit("conversation_complete", "spec submitted from chat flow")
@@ -575,6 +686,11 @@ def handle_handoff():
         )
     else:
         narrative = run_async(st.session_state.concierge.generate_handoff_narrative(spec))
+
+    # DDL preview — shown when schema_location or materialization_type is set
+    if _HAS_SNOWFLAKE_PREVIEW and (spec.schema_location or spec.materialization_type):
+        with st.expander("🏔 Snowflake DDL Preview", expanded=bool(spec.schema_location and spec.materialization_type)):
+            render_snowflake_preview(spec)
 
     action = handoff_summary.render(spec, narrative, st.session_state.concierge_msg)
 
@@ -829,6 +945,10 @@ def render_sidebar():
                         unsafe_allow_html=True,
                     )
 
+            # Autosave indicator
+            if _HAS_DRAFT_MANAGER:
+                render_autosave_indicator(st.session_state.get("last_saved_ts"))
+
             if not _demo_active() and st.button("Clear session cache", key="sidebar_clear_cache"):
                 for key in ["live_valid_options"] + [k for k in st.session_state if k.startswith("field_expl_")]:
                     st.session_state.pop(key, None)
@@ -885,6 +1005,10 @@ def main():
         _scroll_top()
         st.session_state._prev_step = step
 
+    # Inject Cmd+Enter keyboard shortcut on form/handoff pages
+    if _HAS_UX_HELPERS and step in ("path_b", "path_c", "handoff"):
+        inject_keyboard_submit()
+
     # Route
     try:
         if step == "auth":
@@ -899,6 +1023,8 @@ def main():
             handle_chapter_form("remix")
         elif step == "path_c":
             handle_create_conversation()
+            if _HAS_UX_HELPERS:
+                inject_chat_autofocus()
         elif step == "handoff":
             handle_handoff()
         elif step == "complete":
