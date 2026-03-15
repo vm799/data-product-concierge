@@ -1,5 +1,18 @@
 import streamlit as st
 
+# Design token constants — use these in Python code instead of hardcoded hex values
+_TEAL    = "#00C2CB"
+_TEAL_D  = "#006B73"
+_TEAL_DD = "#005960"
+_NAVY    = "#0D1B2A"
+_EMERALD = "#00C48C"
+_GOLD    = "#F5A623"
+_CRIMSON = "#E8384D"
+_SURFACE = "#F5F7FA"
+_TEXT_1  = "#0D1B2A"
+_TEXT_2  = "#5B6A7E"
+_TEXT_3  = "#8C9BAA"
+
 
 def inject_styles():
     """
@@ -23,19 +36,27 @@ def inject_styles():
         --navy: #0D1B2A;
         --navy-mid: #1B2D42;
         --teal: #00C2CB;
+        --teal-d: #006B73;
+        --teal-dd: #005960;
         --teal-light: rgba(0, 194, 203, 0.12);
         --gold: #F5A623;
         --emerald: #00C48C;
         --crimson: #E8384D;
-        --surface: #F0F4F8;
+        --surface: #F5F7FA;
         --white: #FFFFFF;
         --text-primary: #0D1B2A;
         --text-secondary: #5B6A7E;
         --text-muted: #8C9BAA;
+        --text-1: #0D1B2A;
+        --text-2: #5B6A7E;
+        --text-3: #8C9BAA;
         --border: rgba(13, 27, 42, 0.10);
-        --radius-sm: 8px;
-        --radius-md: 16px;
-        --radius-lg: 24px;
+        --radius-sm: 6px;
+        --radius-md: 12px;
+        --radius-lg: 20px;
+        --shadow-sm: 0 1px 4px rgba(13,27,42,0.06);
+        --shadow-md: 0 4px 16px rgba(13,27,42,0.10);
+        --shadow-lg: 0 12px 40px rgba(13,27,42,0.16);
         --shadow-card: 0 2px 16px rgba(13, 27, 42, 0.08), 0 0 0 1px rgba(13, 27, 42, 0.04);
         --shadow-elevated: 0 8px 32px rgba(13, 27, 42, 0.16);
     }
@@ -294,48 +315,57 @@ def inject_styles():
     }
 
     /* ============================================================================
-       COMPONENT: BUTTONS — dark navy + white text, teal on hover
+       COMPONENT: BUTTONS — three-tier interaction design hierarchy
+       Tier 1 primary  = teal filled CTA (one per screen)
+       Tier 2 secondary = ghost teal outline (supporting action)
+       Tier 3 default   = neutral chip (chooseable options, toggles)
        ============================================================================ */
+
+    /* TIER 3: Default (no type) — neutral selectable chip
+       Used for: regulatory pills, domain options, "Build your own", any toggle */
     .stButton button,
-    .stButton > button,
-    button[kind="secondary"],
-    button[kind="primary"] {
-        background-color: #0D1B2A !important;
-        color: #FFFFFF !important;
-        border: none !important;
+    .stButton > button {
+        background-color: #FFFFFF !important;
+        color: var(--text-primary) !important;
+        border: 1.5px solid rgba(13,27,42,0.15) !important;
         border-radius: var(--radius-sm) !important;
-        padding: 14px 28px !important;
-        font-size: 15px !important;
-        font-weight: 700 !important;
-        width: 100% !important;
-        min-height: 52px !important;
+        padding: 10px 20px !important;
+        font-size: 14px !important;
+        font-weight: 500 !important;
         cursor: pointer !important;
-        transition: background-color 0.18s ease, transform 0.12s ease, box-shadow 0.18s ease !important;
+        transition: all 0.15s ease !important;
         font-family: 'Sora', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
-        letter-spacing: 0.05em !important;
-        text-transform: uppercase !important;
-        box-shadow: 0 2px 8px rgba(13,27,42,0.18) !important;
+        letter-spacing: 0.02em !important;
+        text-transform: none !important;
+        box-shadow: none !important;
+        min-height: 40px !important;
     }
 
     .stButton button p,
     .stButton > button p {
-        color: #FFFFFF !important;
+        color: var(--text-primary) !important;
+        font-weight: 500 !important;
     }
 
     .stButton button:hover,
-    .stButton > button:hover,
-    button[kind="secondary"]:hover,
-    button[kind="primary"]:hover {
-        background-color: #00C2CB !important;
-        color: #FFFFFF !important;
-        transform: translateY(-1px) !important;
-        box-shadow: 0 4px 16px rgba(0,194,203,0.32) !important;
+    .stButton > button:hover {
+        background-color: rgba(0,194,203,0.06) !important;
+        border-color: var(--teal) !important;
+        color: var(--teal-d) !important;
+        transform: none !important;
+        box-shadow: none !important;
+    }
+
+    .stButton button:hover p,
+    .stButton > button:hover p {
+        color: var(--teal-d) !important;
     }
 
     .stButton button:active,
     .stButton > button:active {
-        background-color: #009FA8 !important;
-        transform: translateY(0px) scale(0.98) !important;
+        background-color: rgba(0,194,203,0.12) !important;
+        border-color: var(--teal-d) !important;
+        transform: none !important;
         box-shadow: none !important;
     }
 
@@ -381,6 +411,41 @@ def inject_styles():
     }
 
     /* ============================================================================
+       SECONDARY BUTTONS — ghost style (teal outline, transparent bg)
+       Higher specificity (.stButton + attribute) beats the broad .stButton button rule above.
+       ============================================================================ */
+    .stButton button[data-testid="baseButton-secondary"],
+    .stButton > button[data-testid="baseButton-secondary"],
+    [data-testid="baseButton-secondary"],
+    [data-testid="stBaseButton-secondary"] {
+        background: transparent !important;
+        color: var(--teal-d) !important;
+        border: 1.5px solid rgba(0,194,203,0.45) !important;
+        font-weight: 500 !important;
+        font-size: 0.875rem !important;
+        min-height: 44px !important;
+        border-radius: var(--radius-md) !important;
+        transition: all 0.15s ease !important;
+    }
+    /* Also override the button p rule for secondary */
+    .stButton button[data-testid="baseButton-secondary"] p,
+    .stButton > button[data-testid="baseButton-secondary"] p {
+        color: var(--teal-d) !important;
+    }
+    .stButton button[data-testid="baseButton-secondary"]:hover,
+    .stButton > button[data-testid="baseButton-secondary"]:hover,
+    [data-testid="baseButton-secondary"]:hover,
+    [data-testid="stBaseButton-secondary"]:hover {
+        background: rgba(0,194,203,0.06) !important;
+        border-color: var(--teal) !important;
+        color: var(--teal) !important;
+    }
+    .stButton button[data-testid="baseButton-secondary"]:hover p,
+    .stButton > button[data-testid="baseButton-secondary"]:hover p {
+        color: var(--teal) !important;
+    }
+
+    /* ============================================================================
        COMPONENT: FORM OPTION PILLS (.dpc-pill) — teal, distinct from navy CTAs
        ============================================================================ */
     .dpc-pill {
@@ -422,23 +487,34 @@ def inject_styles():
         border-radius: 0 var(--radius-md) var(--radius-md) 0;
         padding: 20px 24px;
         font-size: 18px;
-        font-style: italic;
+        font-style: normal;
         color: var(--text-primary);
         position: relative;
         margin-bottom: 1.5rem;
         line-height: 1.6;
     }
 
+    .dpc-concierge p {
+        font-style: normal !important;
+        color: var(--text-2, #5B6A7E);
+        font-size: 0.9rem;
+        line-height: 1.6;
+    }
+
     .dpc-concierge::before {
-        content: "✦ Concierge";
-        display: block;
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--teal);
-        font-style: normal;
-        margin-bottom: 12px;
+        content: "GUIDANCE";
+        display: inline-block;
+        font-size: 0.65rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
+        color: var(--teal-d);
+        background: rgba(0,194,203,0.08);
+        border: 1px solid rgba(0,194,203,0.25);
+        border-radius: 100px;
+        padding: 2px 8px;
+        margin-bottom: 10px;
+        font-style: normal;
     }
 
     /* ============================================================================
@@ -845,6 +921,42 @@ def inject_styles():
         box-shadow: 0 0 0 3px rgba(0, 194, 203, 0.1) !important;
     }
 
+    /* Streamlit uses BaseWeb div-based custom dropdowns — protect their text */
+    div[data-baseweb="select"] *,
+    div[data-baseweb="select"] input,
+    div[data-baseweb="select"] [data-testid="stWidgetLabel"] {
+        color: var(--text-primary) !important;
+    }
+
+    /* Prevent BaseWeb select dropdown from being clipped at viewport bottom */
+    div[data-baseweb="select"] {
+        position: relative;
+        z-index: 10;
+    }
+
+    /* Popover/dropdown portal — ensure it appears above other content */
+    div[data-baseweb="popover"],
+    div[data-baseweb="menu"] {
+        z-index: 9999 !important;
+        max-height: 280px !important;
+        overflow-y: auto !important;
+    }
+
+    /* Dropdown option list — rendered in a portal, ensure dark text on white */
+    div[data-baseweb="popover"] li,
+    div[data-baseweb="popover"] [role="option"],
+    div[data-baseweb="menu"] li,
+    div[data-baseweb="menu"] [role="option"],
+    div[data-baseweb="menu"] * {
+        color: var(--text-primary) !important;
+        background-color: var(--white);
+    }
+    div[data-baseweb="menu"] [role="option"]:hover,
+    div[data-baseweb="popover"] [role="option"]:hover {
+        background-color: var(--teal-light) !important;
+        color: var(--teal-d) !important;
+    }
+
     /* ============================================================================
        STREAMLIT MULTISELECT
        ============================================================================ */
@@ -856,6 +968,46 @@ def inject_styles():
 
     .stMultiSelect [data-baseweb="tag"] span {
         color: var(--white) !important;
+    }
+
+    /* ============================================================================
+       STREAMLIT PILLS (st.pills — Streamlit 1.40+)
+       Unselected: white chip, subtle border, dark text
+       Selected: teal filled, white text — clear affordance
+       ============================================================================ */
+    [data-testid="stPills"] button {
+        background: var(--white) !important;
+        color: var(--text-primary) !important;
+        border: 1.5px solid rgba(13,27,42,0.18) !important;
+        border-radius: 100px !important;
+        padding: 6px 16px !important;
+        font-size: 0.83rem !important;
+        font-weight: 500 !important;
+        transition: all 0.15s ease !important;
+        box-shadow: none !important;
+        text-transform: none !important;
+        letter-spacing: 0 !important;
+    }
+
+    [data-testid="stPills"] button:hover {
+        background: rgba(0,194,203,0.08) !important;
+        border-color: var(--teal) !important;
+        color: var(--teal-d) !important;
+    }
+
+    [data-testid="stPills"] button[aria-pressed="true"],
+    [data-testid="stPills"] button[aria-selected="true"] {
+        background: var(--teal-d) !important;
+        color: #fff !important;
+        border-color: var(--teal-d) !important;
+        font-weight: 600 !important;
+    }
+
+    [data-testid="stPills"] button[aria-pressed="true"]:hover,
+    [data-testid="stPills"] button[aria-selected="true"]:hover {
+        background: var(--teal-dd) !important;
+        border-color: var(--teal-dd) !important;
+        color: #fff !important;
     }
 
     /* ============================================================================
@@ -1064,7 +1216,7 @@ def inject_styles():
         padding-left: 16px;
         margin-left: 0;
         color: var(--text-secondary);
-        font-style: italic;
+        font-style: normal;
     }
 
     [data-testid="stMarkdownContainer"] ul,
@@ -1584,6 +1736,17 @@ def inject_styles():
         color: #F5A623 !important;
     }
 
+    /* Sidebar toggle — teal when on, muted when off */
+    [data-testid="stSidebar"] [data-testid="stToggle"] label {
+        color: rgba(255,255,255,0.75) !important;
+        font-size: .8rem !important;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stToggle"] [data-testid="stMarkdownContainer"] p {
+        color: rgba(255,255,255,0.75) !important;
+        font-size: .8rem !important;
+    }
+
     /* ============================================================================
        SCROLLBAR STYLING
        ============================================================================ */
@@ -1610,6 +1773,248 @@ def inject_styles():
     /* This class is added via JS after each bot message */
     .dpc-refocus-target {
         scroll-margin-top: 80px;
+    }
+
+    /* ── Guidance panel (replaces italic concierge bubble for field help) ── */
+    .dpc-guidance {
+        background: var(--surface);
+        border-left: 3px solid var(--teal);
+        border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+        padding: 12px 16px;
+        margin-bottom: 1.5rem;
+    }
+    .dpc-guidance p {
+        font-style: normal !important;
+        color: var(--text-2);
+        font-size: 0.875rem;
+        line-height: 1.6;
+        margin: 4px 0 0;
+    }
+
+    /* ── Label chip (replaces "✦ Concierge" prefix) ── */
+    .dpc-label-chip {
+        display: inline-block;
+        font-size: 0.65rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--teal-d);
+        background: rgba(0,194,203,0.08);
+        border: 1px solid rgba(0,194,203,0.25);
+        border-radius: 100px;
+        padding: 2px 8px;
+        margin-bottom: 6px;
+    }
+
+    /* ── Muted button wrapper (Tier 3 — skip/cancel/minor) ── */
+    .dpc-btn-muted button,
+    .dpc-btn-muted [data-testid^="stBaseButton"] {
+        background: transparent !important;
+        color: var(--text-3) !important;
+        border: 1px solid rgba(13,27,42,0.12) !important;
+        font-weight: 400 !important;
+        font-size: 0.8rem !important;
+        min-height: 36px !important;
+        border-radius: var(--radius-sm) !important;
+        box-shadow: none !important;
+        transition: all 0.15s ease !important;
+    }
+    .dpc-btn-muted button:hover {
+        color: var(--text-2) !important;
+        border-color: rgba(13,27,42,0.25) !important;
+    }
+
+    /* ── Download button wrapper ── */
+    .dpc-download button,
+    .dpc-download [data-testid^="stBaseButton"] {
+        background: var(--surface) !important;
+        color: var(--teal-d) !important;
+        border: 1px solid rgba(0,194,203,0.3) !important;
+        font-weight: 500 !important;
+        font-size: 0.8rem !important;
+        border-radius: var(--radius-sm) !important;
+        box-shadow: none !important;
+        transition: all 0.15s ease !important;
+    }
+    .dpc-download button:hover {
+        background: rgba(0,194,203,0.06) !important;
+        border-color: var(--teal) !important;
+    }
+
+    /* ── Field label typography ── */
+    .dpc-field-label {
+        font-size: 1.05rem;
+        font-weight: 600;
+        color: var(--text-1);
+        margin-bottom: 4px;
+        display: block;
+        font-style: normal !important;
+    }
+    .dpc-field-question {
+        font-size: 0.875rem;
+        color: var(--text-2);
+        margin-bottom: 12px;
+        line-height: 1.5;
+        font-style: normal !important;
+    }
+    .dpc-field-explanation {
+        font-size: 0.78rem;
+        color: var(--text-3);
+        margin-top: 8px;
+        line-height: 1.5;
+        font-style: normal !important;
+    }
+    .dpc-required-dot {
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--teal);
+        margin-left: 4px;
+        vertical-align: middle;
+    }
+
+    /* ── Dot stepper (chapter / field progress) ── */
+    .dpc-stepper {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0;
+        margin: 0 0 2rem;
+        padding: 0.5rem 0;
+    }
+    .dpc-step {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        cursor: pointer;
+        position: relative;
+    }
+    .dpc-step-connector {
+        width: 36px;
+        height: 1px;
+        background: rgba(13,27,42,0.12);
+        margin: 0 4px;
+        align-self: center;
+        margin-bottom: 14px;
+    }
+    .dpc-step-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        transition: all 0.2s ease;
+        cursor: pointer;
+    }
+    .dpc-step-dot--done {
+        background: var(--emerald);
+    }
+    .dpc-step-dot--active {
+        background: var(--teal);
+        box-shadow: 0 0 0 4px rgba(0,194,203,0.2);
+    }
+    .dpc-step-dot--future {
+        background: rgba(13,27,42,0.15);
+    }
+    .dpc-step-label {
+        font-size: 0.6rem;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin-top: 6px;
+        white-space: nowrap;
+        font-style: normal !important;
+    }
+    .dpc-step--done .dpc-step-label   { color: var(--emerald); }
+    .dpc-step--active .dpc-step-label { color: var(--teal-d); }
+    .dpc-step--future .dpc-step-label { color: var(--text-3); }
+
+    /* ── Field card ── */
+    .dpc-field-card {
+        background: #fff;
+        border: 1px solid rgba(13,27,42,0.08);
+        border-radius: var(--radius-lg);
+        padding: 2rem 2.5rem;
+        box-shadow: var(--shadow-sm);
+        margin-bottom: 1.5rem;
+        min-height: 320px;
+    }
+
+    /* ── Live spec preview panel ── */
+    .dpc-spec-preview {
+        background: var(--surface);
+        border-radius: var(--radius-md);
+        padding: 1.25rem 1.5rem;
+        min-height: 300px;
+        position: sticky;
+        top: 1rem;
+        align-self: flex-start;
+        max-height: calc(100vh - 120px);
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+
+    /* Sticky column wrapper — enables sticky on Streamlit column containers */
+    [data-testid="column"]:has(.dpc-spec-preview) {
+        position: sticky;
+        top: 1rem;
+        align-self: flex-start;
+    }
+    .dpc-spec-preview-title {
+        font-size: 0.65rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--text-3);
+        margin-bottom: 1rem;
+        font-style: normal !important;
+    }
+    .dpc-spec-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        padding: 6px 0;
+        border-bottom: 1px solid rgba(13,27,42,0.05);
+        gap: 12px;
+    }
+    .dpc-spec-row-label {
+        font-size: 0.75rem;
+        color: var(--text-3);
+        font-weight: 500;
+        white-space: nowrap;
+        flex-shrink: 0;
+        font-style: normal !important;
+    }
+    .dpc-spec-row-value {
+        font-size: 0.8rem;
+        color: var(--text-1);
+        font-weight: 500;
+        text-align: right;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 60%;
+    }
+    .dpc-spec-row--answered .dpc-spec-row-label { color: var(--teal-d); }
+    .dpc-spec-row--skipped  .dpc-spec-row-label { color: var(--gold); }
+    .dpc-spec-row--pending  .dpc-spec-row-label { color: var(--text-3); }
+    .dpc-spec-row--auto     .dpc-spec-row-label { color: var(--emerald); }
+
+    /* ── Colleague handoff card ── */
+    .dpc-handoff-card {
+        background: linear-gradient(135deg, rgba(0,194,203,0.04) 0%, rgba(0,107,115,0.06) 100%);
+        border: 1px solid rgba(0,194,203,0.2);
+        border-radius: var(--radius-lg);
+        padding: 2rem;
+        margin-top: 1.5rem;
+    }
+
+    /* ── No italic anywhere ── */
+    .dpc-card p,
+    .dpc-card span,
+    .dpc-card div,
+    .stMarkdown em,
+    .stMarkdown i {
+        font-style: normal !important;
     }
     </style>
     """
@@ -1651,4 +2056,18 @@ def inject_keyboard_submit() -> None:
         "} catch(e) {}"
         "</script>",
         height=0,
+    )
+
+
+def render_guidance(text: str, label: str = "Guidance") -> None:
+    """Render a styled guidance panel — no italic, clean enterprise style."""
+    import streamlit as st
+    # Sanitise: strip any markdown italic markers that might have leaked in
+    clean = text.replace("*", "").replace("_", " ").strip() if text else ""
+    st.markdown(
+        f'<div class="dpc-guidance">'
+        f'<span class="dpc-label-chip">{label}</span>'
+        f'<p>{clean}</p>'
+        f'</div>',
+        unsafe_allow_html=True,
     )

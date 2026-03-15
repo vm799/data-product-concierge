@@ -832,10 +832,11 @@ def _preview_chat_turn(
         response = f"{confirm} **{label}**: *{display}*."
 
         answered_count = sum(1 for s in new_status.values() if s == FIELD_STATUS_ANSWERED)
+        _total_b = len(BUSINESS_FLOW_ORDER)
         if answered_count == 5:
-            response += f" ({answered_count} of {total_business} fields covered so far.)"
+            response += f" ({answered_count} of {_total_b} fields covered so far.)"
         elif answered_count == 10:
-            response += f" ({answered_count} of {total_business} covered. Nearly there.)"
+            response += f" ({answered_count} of {_total_b} covered. Nearly there.)"
 
         next_f = _next_field(new_status, field_status)
         if next_f:

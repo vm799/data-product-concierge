@@ -6,66 +6,13 @@ governance metadata, technical specs, regulatory info, and action buttons.
 Production-ready with zero mock data.
 """
 
-import math
+import os
 from typing import Optional
 
 import streamlit as st
 
 from models.data_product import DataProductSpec
 
-
-def _render_data_quality_gauge(score: Optional[float]) -> str:
-    """
-    Render large circular SVG gauge for data quality score.
-
-    Args:
-        score: Quality score 0-100, or None for "Not measured"
-
-    Returns:
-        SVG HTML string with gauge visualization
-    """
-    if score is None:
-        return """
-        <div class="dpc-gauge-container" style="margin: 2rem auto;">
-            <svg class="dpc-gauge-svg" viewBox="0 0 200 200">
-                <circle class="dpc-gauge-background" cx="100" cy="100" r="80"></circle>
-            </svg>
-            <div class="dpc-gauge-number" style="font-size: 48px; color: var(--text-muted);">–</div>
-            <div class="dpc-gauge-label">Not measured</div>
-        </div>
-        """
-
-    # Determine color class
-    if score < 60:
-        color_class = "score-0-59"
-    elif score < 80:
-        color_class = "score-60-79"
-    else:
-        color_class = "score-80-100"
-
-    # SVG gauge calculation
-    radius = 80
-    circumference = 2 * math.pi * radius
-    arc_degrees = (score / 100) * 270
-    arc_radians = math.radians(arc_degrees)
-    offset = circumference - (arc_radians / (2 * math.pi)) * circumference
-
-    return f"""
-    <div class="dpc-gauge-container" style="margin: 2rem auto;">
-        <svg class="dpc-gauge-svg" viewBox="0 0 200 200">
-            <circle class="dpc-gauge-background" cx="100" cy="100" r="80"></circle>
-            <circle
-                class="dpc-gauge-progress {color_class}"
-                cx="100"
-                cy="100"
-                r="80"
-                style="transform: rotate(-90deg); transform-origin: 100px 100px; stroke-dasharray: {circumference}; stroke-dashoffset: {offset};"
-            ></circle>
-        </svg>
-        <div class="dpc-gauge-number">{int(score)}</div>
-        <div class="dpc-gauge-label">Data Quality</div>
-    </div>
-    """
 
 
 def _render_ingredient_field(label: str, value: Optional[str], is_code: bool = False) -> str:
@@ -81,7 +28,7 @@ def _render_ingredient_field(label: str, value: Optional[str], is_code: bool = F
         HTML string for field row
     """
     if value is None or (isinstance(value, str) and value.strip() == ""):
-        value_html = '<span style="color: var(--text-muted); font-style: italic;">Not recorded</span>'
+        value_html = '<span style="color: var(--text-3); font-weight: 400;">—</span>'
     else:
         font_class = "text-code" if is_code else ""
         value_html = f'<span class="{font_class}">{value}</span>'
@@ -140,7 +87,11 @@ def render(
     status_class = f"dpc-status-{spec.status.lower()}" if spec.status else "dpc-status-draft"
     status_text = spec.status or "Draft"
     status_badge = f'<span class="dpc-status {status_class}">{status_text}</span>' if spec.status else ""
-    collibra_link = f'<a href="https://collibra.example.com/assets/{spec.id}" target="_blank" style="font-size: 14px; color: var(--teal); text-decoration: none;">🔗 View in Collibra</a>' if spec.id else ""
+    _collibra_base = os.getenv("COLLIBRA_BASE_URL", "").rstrip("/")
+    collibra_link = (
+        f'<a href="{_collibra_base}/assets/{spec.id}" target="_blank" '
+        f'style="font-size: 14px; color: var(--teal); text-decoration: none;">🔗 View in Collibra</a>'
+    ) if spec.id and _collibra_base else ""
 
     header_html = f"""
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; flex-wrap: wrap;">
@@ -162,15 +113,19 @@ def render(
 
     # ===== SECTION: OVERVIEW =====
     overview_fields = []
-    overview_fields.append(_render_ingredient_field("Name", spec.name))
-    overview_fields.append(_render_ingredient_field("Description", spec.description))
-    overview_fields.append(_render_ingredient_field("Business Purpose", spec.business_purpose))
+    if spec.name:
+        overview_fields.append(_render_ingredient_field("Name", spec.name))
+    if spec.description:
+        overview_fields.append(_render_ingredient_field("Description", spec.description))
+    if spec.business_purpose:
+        overview_fields.append(_render_ingredient_field("Business Purpose", spec.business_purpose))
     if spec.version:
         overview_fields.append(_render_ingredient_field("Version", spec.version))
-    ingredient_sections.append(_render_ingredient_section(
-        "OVERVIEW",
-        "".join(overview_fields),
-    ))
+    if overview_fields:
+        ingredient_sections.append(_render_ingredient_section(
+            "OVERVIEW",
+            "".join(overview_fields),
+        ))
 
     # ===== SECTION: CLASSIFICATION =====
     classification_fields = []
@@ -323,13 +278,6 @@ def render(
     """
     st.html(ingredient_html)
 
-    # Data quality gauge
-    if spec.data_quality_score is not None:
-        st.markdown(
-            _render_data_quality_gauge(spec.data_quality_score),
-            unsafe_allow_html=True,
-        )
-
     # Full sample query in expander (if exists)
     if spec.sample_query:
         with st.expander("📋 View full sample query"):
@@ -360,11 +308,21 @@ def render(
             action = "email"
 
     with col2:
-        if st.button(
-            "📋 Copy access request template",
-            use_container_width=True,
-            key="action_copy",
-        ):
+        if st.button("📋 View access request template", use_container_width=True, key="action_copy"):
+            owner_email = spec.data_owner_email or "data-owner@company.com"
+            product_name = spec.name or "this data product"
+            template = (
+                f"To: {owner_email}\n"
+                f"Subject: Access Request — {product_name}\n\n"
+                f"Hi,\n\n"
+                f"I would like to request access to the '{product_name}' data product "
+                f"(Domain: {spec.domain or 'TBC'}, Classification: {spec.data_classification or 'TBC'}).\n\n"
+                f"Intended use: [please describe your use case]\n"
+                f"Team / cost centre: [your team name]\n"
+                f"Required by: [date]\n\n"
+                f"Thank you"
+            )
+            st.code(template, language=None)
             action = "copy"
 
     with col3:

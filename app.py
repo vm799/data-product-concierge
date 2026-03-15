@@ -28,28 +28,33 @@ st.set_page_config(
 # ---------------------------------------------------------------------------
 # Bridge Streamlit Cloud secrets → os.environ (silent if no secrets file)
 # ---------------------------------------------------------------------------
-def _load_streamlit_secrets_to_env():
+import pathlib as _pathlib
+
+_SECRETS_LOADED: bool = False   # True if secrets.toml was found and loaded
+_SECRETS_PATHS = [
+    _pathlib.Path.home() / ".streamlit" / "secrets.toml",
+    _pathlib.Path(__file__).parent / ".streamlit" / "secrets.toml",
+]
+
+
+def _load_streamlit_secrets_to_env() -> bool:
     """
-    Copy Streamlit secrets into os.environ without ever triggering the
-    'No secrets found' UI error.  We check for the file on disk first —
-    if it doesn't exist we return immediately, never touching st.secrets.
+    Load secrets into os.environ. Returns True if a secrets file was found.
+    Checks file existence BEFORE touching st.secrets so Streamlit never
+    renders the 'No secrets found' error to the main page.
     """
-    import pathlib
-    candidate_paths = [
-        pathlib.Path.home() / ".streamlit" / "secrets.toml",
-        pathlib.Path(__file__).parent / ".streamlit" / "secrets.toml",
-    ]
-    if not any(p.exists() for p in candidate_paths):
-        return  # No secrets file — skip silently, no UI error
+    if not any(p.exists() for p in _SECRETS_PATHS):
+        return False
     try:
         for key in st.secrets:
             if isinstance(st.secrets[key], str) and key not in os.environ:
                 os.environ[key] = st.secrets[key]
+        return True
     except Exception:
-        pass
+        return False
 
 
-_load_streamlit_secrets_to_env()
+_SECRETS_LOADED = _load_streamlit_secrets_to_env()
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +114,18 @@ def _scroll_top() -> None:
 from models.data_product import DataProductSpec, AssetResult
 from components.styles import inject_styles
 from components import search_bar, asset_cards, ingredient_label, chapter_form, handoff_summary, conversation_create
+
+try:
+    from components.use_case_intake import render_use_case_intake
+    _HAS_INTAKE = True
+except ImportError:
+    _HAS_INTAKE = False
+
+try:
+    from components.guided_form import render_guided_form
+    _HAS_GUIDED_FORM = True
+except ImportError:
+    _HAS_GUIDED_FORM = False
 
 # Optional components — available once agents have written them
 try:
@@ -411,40 +428,71 @@ def handle_search():
                         _audit("draft_resumed", f"resumed draft {record.draft_id[:8]}")
                         st.rerun()
 
-    query, submitted = search_bar.render_hero()
+    if _HAS_INTAKE:
+        working_spec = st.session_state.get("spec") or DataProductSpec(name="", description="", business_purpose="")
 
-    if _demo_active():
-        st.html(
-            '<div class="dpc-concierge" style="margin-top:1rem;">'
-            '<strong style="color:var(--teal);font-style:normal;">🎭 Demo Mode</strong><br>'
-            'Showing sample data — no live APIs connected. '
-            'Toggle <em>Demo mode</em> off in the sidebar or set <code>APIM_BASE_URL</code> to connect to Collibra.'
-            '</div>'
+        valid_domains = None
+        if not _demo_active() and st.session_state.get("collibra_client"):
+            try:
+                domains = run_async(st.session_state.collibra_client.get_domains())
+                valid_domains = [d.name for d in domains] if domains else None
+            except Exception:
+                pass
+
+        seeded_spec, intake_results, action = render_use_case_intake(
+            working_spec,
+            st.session_state.get("collibra_client"),
+            _demo_active(),
+            valid_domains,
         )
 
-    if submitted and query:
-        st.session_state.query = query
-        if _demo_active():
-            st.session_state.results = _demo_sample_results()
+        if action == "search_submitted":
+            st.session_state.spec = seeded_spec
+            st.session_state.results = intake_results
             st.session_state.concierge_msg = (
-                f'Great — I\'m searching for data products matching "{query}". '
-                f"I found 3 results. The top match — ESG Scope 1 Emissions EU — "
-                f"looks like a strong fit. The owner is Sarah Chen in ESG Data & Analytics."
+                f"Found {len(intake_results)} data product(s) in the catalogue matching your requirements."
             )
-            _audit("search", f'demo query: "{query}"')
-        else:
-            intent = run_async(st.session_state.concierge.interpret_query(query))
-            results = run_async(st.session_state.collibra_client.search_assets(intent.search_terms))
-            narration = run_async(st.session_state.concierge.narrate_results(results, query))
-            st.session_state.intent = intent
-            st.session_state.results = results
-            st.session_state.concierge_msg = narration
-            _audit("search", f'live query: "{query}" → {len(results)} results')
-        st.session_state.step = "results"
-        st.rerun()
+            _audit("search", f"intake → {len(intake_results)} results")
+            st.session_state.step = "results"
+            st.rerun()
+    else:
+        query, submitted = search_bar.render_hero()
+
+        if _demo_active():
+            st.html(
+                '<div class="dpc-concierge" style="margin-top:1rem;">'
+                '<strong style="color:var(--teal);font-style:normal;">Demo Mode</strong><br>'
+                'Showing sample data — no live APIs connected.'
+                '</div>'
+            )
+
+        if submitted and query:
+            st.session_state.query = query
+            if _demo_active():
+                st.session_state.results = _demo_sample_results()
+                st.session_state.concierge_msg = (
+                    f'Found 3 results matching "{query}". The top match looks like a strong fit.'
+                )
+                _audit("search", f'demo query: "{query}"')
+            else:
+                intent = run_async(st.session_state.concierge.interpret_query(query))
+                results = run_async(st.session_state.collibra_client.search_assets(intent.search_terms))
+                narration = run_async(st.session_state.concierge.narrate_results(results, query))
+                st.session_state.intent = intent
+                st.session_state.results = results
+                st.session_state.concierge_msg = narration
+                _audit("search", f'live query: "{query}" → {len(results)} results')
+            st.session_state.step = "results"
+            st.rerun()
 
 
 def handle_results():
+    col_back, _ = st.columns([1, 5])
+    with col_back:
+        if st.button("← Refine search", key="results_back_btn", type="secondary"):
+            st.session_state.step = "search"
+            st.rerun()
+
     selected, path = asset_cards.render_results(
         st.session_state.results, st.session_state.concierge_msg
     )
@@ -604,7 +652,45 @@ def _demo_valid_options() -> dict:
     }
 
 
+def _handle_guided_form(path_label: str):
+    """Shared handler for guided card-by-card form (path_b remix + path_c create)."""
+    if _demo_active():
+        valid_options = _demo_valid_options()
+    else:
+        if "live_valid_options" not in st.session_state:
+            with st.spinner("Loading your organisation's data from Collibra…"):
+                st.session_state.live_valid_options = _load_live_valid_options()
+        valid_options = st.session_state.live_valid_options
+
+    updated_spec, action = render_guided_form(
+        st.session_state.spec,
+        path_label,
+        valid_options,
+    )
+
+    if updated_spec and updated_spec is not st.session_state.spec:
+        st.session_state.spec = updated_spec
+        _autosave_draft()
+
+    if action == "handoff":
+        _audit("guided_form_complete", f"spec submitted via guided form ({path_label})")
+        st.session_state.step = "handoff"
+        st.rerun()
+    elif action == "colleague_handoff":
+        _audit("colleague_handoff", f"handoff generated ({path_label})")
+        handoff_data = st.session_state.get("gf_colleague_handoff", {})
+        from components.handoff_summary import render_colleague_handoff
+        render_colleague_handoff(st.session_state.spec, handoff_data)
+    elif action == "back":
+        st.session_state.step = "results"
+        st.rerun()
+
+
 def handle_chapter_form(path_label: str):
+    if _HAS_GUIDED_FORM:
+        _handle_guided_form(path_label)
+        return
+
     chapter = st.session_state.chapter
     chapter_name = _get_chapter_name(chapter)
 
@@ -647,11 +733,11 @@ def handle_chapter_form(path_label: str):
 
     if nav_action == "next" and chapter < 5:
         st.session_state.chapter = chapter + 1
-        st.session_state._chapter_just_changed = True
+        _scroll_top()
         st.rerun()
     elif nav_action == "prev" and chapter > 1:
         st.session_state.chapter = chapter - 1
-        st.session_state._chapter_just_changed = True
+        _scroll_top()
         st.rerun()
     elif nav_action == "submit":
         _audit("chapter_submit", f"all chapters submitted → handoff")
@@ -660,7 +746,11 @@ def handle_chapter_form(path_label: str):
 
 
 def handle_create_conversation():
-    """Handle the conversational CREATE flow (path_c)."""
+    """Handle the CREATE flow (path_c)."""
+    if _HAS_GUIDED_FORM:
+        _handle_guided_form("create")
+        return
+
     if _demo_active():
         valid_options = _demo_valid_options()
     else:
@@ -783,28 +873,30 @@ def render_sidebar():
         )
         st.markdown('<hr style="border-color:rgba(77,217,192,.2);margin:0.5rem 0 1rem;">', unsafe_allow_html=True)
 
-        # ── Demo mode toggle ─────────────────────────────────────────────────
-        if LIVE_CAPABLE:
-            # Toggle only shown when live APIs are configured
-            current_demo = st.session_state.get("demo_mode", False)
-            new_demo = st.toggle(
-                "🎭 Demo mode",
-                value=current_demo,
-                key="_sidebar_demo_toggle",
-                help="When on, all data is sample/mock. Switch off to use your live Collibra instance.",
-            )
-            if new_demo != current_demo:
-                st.session_state.demo_mode = new_demo
-                _audit("demo_toggle", f"demo mode → {'on' if new_demo else 'off'}")
-                st.rerun()
-        else:
-            # No live APIs — demo is forced, show a clear indicator
+        # ── Config warning (sidebar only, never main page) ───────────────────
+        if not _SECRETS_LOADED:
             st.markdown(
-                '<div style="background:rgba(245,166,35,.12);border:1px solid rgba(245,166,35,.3);border-radius:6px;padding:.4rem .6rem;margin-bottom:.5rem;">'
-                '<span style="color:#F5A623;font-size:.75rem;font-weight:600;">🎭 Demo mode — no live APIs</span>'
+                '<div style="background:rgba(232,56,77,.1);border:1px solid rgba(232,56,77,.3);'
+                'border-radius:6px;padding:.4rem .6rem;margin-bottom:.5rem;">'
+                '<span style="color:#E8384D;font-size:.72rem;font-weight:600;">⚠ No secrets.toml</span><br>'
+                '<span style="color:rgba(255,255,255,.6);font-size:.68rem;">'
+                'Add .streamlit/secrets.toml to connect live APIs.</span>'
                 '</div>',
                 unsafe_allow_html=True,
             )
+
+        # ── Demo mode toggle — always visible ────────────────────────────────
+        current_demo = st.session_state.get("demo_mode", not LIVE_CAPABLE)
+        new_demo = st.toggle(
+            "Demo mode",
+            value=current_demo,
+            key="_sidebar_demo_toggle",
+            help="On: sample data only. Off: connects to live Collibra APIs (requires secrets.toml).",
+        )
+        if new_demo != current_demo:
+            st.session_state.demo_mode = new_demo
+            _audit("demo_toggle", f"demo mode → {'on' if new_demo else 'off'}")
+            st.rerun()
 
         st.markdown('<div style="height:.3rem;"></div>', unsafe_allow_html=True)
 
@@ -958,10 +1050,6 @@ def render_sidebar():
                         unsafe_allow_html=True,
                     )
 
-            # Autosave indicator
-            if _HAS_DRAFT_MANAGER:
-                render_autosave_indicator(st.session_state.get("last_saved_ts"))
-
             if not _demo_active() and st.button("Clear session cache", key="sidebar_clear_cache"):
                 for key in ["live_valid_options"] + [k for k in st.session_state if k.startswith("field_expl_")]:
                     st.session_state.pop(key, None)
@@ -997,11 +1085,28 @@ def render_sidebar():
         # ── Start over ────────────────────────────────────────────────────────
         if step not in ("auth", "search"):
             st.markdown('<div style="height:.5rem;"></div>', unsafe_allow_html=True)
-            if st.button("↩ Start over", key="sidebar_start_over", use_container_width=True):
-                _audit("restart", "user clicked start over")
-                for key in list(st.session_state.keys()):
-                    del st.session_state[key]
-                st.rerun()
+            # Step 1: Show "Start Over" button normally
+            if not st.session_state.get("_confirm_restart", False):
+                if st.button("↺ Start over", key="restart_btn", use_container_width=True):
+                    st.session_state["_confirm_restart"] = True
+                    st.rerun()
+            # Step 2: Show confirmation
+            else:
+                st.markdown(
+                    '<p style="color:rgba(255,255,255,.7);font-size:.72rem;margin-bottom:.3rem;">This clears all progress. Sure?</p>',
+                    unsafe_allow_html=True,
+                )
+                col_yes, col_no = st.columns(2)
+                with col_yes:
+                    if st.button("Yes, restart", key="restart_confirm_yes", use_container_width=True):
+                        _audit("restart", "user confirmed start over")
+                        for key in list(st.session_state.keys()):
+                            del st.session_state[key]
+                        st.rerun()
+                with col_no:
+                    if st.button("Cancel", key="restart_confirm_no", use_container_width=True):
+                        st.session_state["_confirm_restart"] = False
+                        st.rerun()
 
 
 # ---------------------------------------------------------------------------

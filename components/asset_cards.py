@@ -128,6 +128,17 @@ def render_results(
     skipped_ids = st.session_state.get("skipped_ids", [])
     visible_results = [r for r in results if r.id not in skipped_ids]
 
+    # Empty state: no search results at all
+    if not results:
+        st.markdown(
+            '<div style="text-align:center;padding:2rem 1rem;border:1px dashed rgba(13,27,42,0.15);'
+            'border-radius:12px;margin:1rem 0;">'
+            '<p style="color:#5B6A7E;font-size:1rem;margin-bottom:.5rem;">No existing data products matched your search.</p>'
+            '<p style="color:#8C9BAA;font-size:.85rem;">Try different terms, or build a new governed data product from scratch.</p>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
     # Render each result as a card
     for idx, result in enumerate(visible_results):
         # Determine domain badge color (rotating through 5 colors)
@@ -144,60 +155,36 @@ def render_results(
                 remainder = len(result.regulatory_scope) - 3
                 regulatory_pills += f'<span class="dpc-badge color-2">+{remainder} more</span>'
 
-        # Data quality score progress bar
+        # Data quality band badge
         quality_html = ""
         if result.data_quality_score is not None:
             score = result.data_quality_score
-            if score < 60:
-                quality_color = "#E8384D"  # crimson
-                quality_label = f"{int(score)} / 100"
-            elif score < 80:
-                quality_color = "#F5A623"  # gold
-                quality_label = f"{int(score)} / 100"
+            if score >= 80:
+                band_label, band_color, band_bg = "High quality", "#00C48C", "rgba(0,196,140,0.12)"
+            elif score >= 60:
+                band_label, band_color, band_bg = "Medium quality", "#F5A623", "rgba(245,166,35,0.12)"
             else:
-                quality_color = "#00C48C"  # emerald
-                quality_label = f"{int(score)} / 100"
-
-            quality_html = f"""
-            <div style="margin-top: 12px; margin-bottom: 12px;">
-                <div style="font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px;">
-                    Data Quality Score
-                </div>
-                <div style="background-color: var(--border); border-radius: 4px; height: 8px; overflow: hidden;">
-                    <div style="background-color: {quality_color}; height: 100%; width: {score}%; transition: width 0.3s ease;"></div>
-                </div>
-                <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px; text-align: right;">
-                    {quality_label}
-                </div>
-            </div>
-            """
+                band_label, band_color, band_bg = "Low quality", "#E8384D", "rgba(232,56,77,0.12)"
+            quality_html = (
+                f'<span style="display:inline-block;background:{band_bg};color:{band_color};'
+                f'border:1px solid {band_color};border-radius:100px;padding:2px 10px;'
+                f'font-size:.72rem;font-weight:600;">{band_label}</span>'
+            )
         else:
-            quality_html = """
-            <div style="margin-top: 12px; margin-bottom: 12px;">
-                <div style="font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px;">
-                    Data Quality Score
-                </div>
-                <div style="color: var(--text-muted); font-size: 12px;">Not measured</div>
-            </div>
-            """
+            quality_html = (
+                '<span style="display:inline-block;background:rgba(13,27,42,0.04);color:#8C9BAA;'
+                'border:1px solid rgba(13,27,42,0.1);border-radius:100px;padding:2px 10px;'
+                'font-size:.72rem;font-weight:600;">Quality unscored</span>'
+            )
 
-        # Relevance score progress bar (always teal)
+        # Relevance score inline badge
         relevance_html = ""
-        if result.relevance_score is not None:
-            relevance_score = result.relevance_score
-            relevance_html = f"""
-            <div style="margin-top: 12px; margin-bottom: 16px;">
-                <div style="font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px;">
-                    Relevance
-                </div>
-                <div style="background-color: var(--border); border-radius: 4px; height: 8px; overflow: hidden;">
-                    <div style="background-color: var(--teal); height: 100%; width: {relevance_score}%; transition: width 0.3s ease;"></div>
-                </div>
-                <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px; text-align: right;">
-                    {int(relevance_score)}% match
-                </div>
-            </div>
-            """
+        if result.relevance_score and result.relevance_score > 0:
+            relevance_html = (
+                f'<span style="display:inline-block;background:rgba(0,194,203,0.08);color:#006B73;'
+                f'border:1px solid rgba(0,194,203,0.25);border-radius:100px;padding:2px 10px;'
+                f'font-size:.72rem;font-weight:600;">{int(result.relevance_score)}% match</span>'
+            )
 
         # Get classification badge color
         classification_color = _get_classification_color(result.data_classification)
@@ -221,11 +208,13 @@ def render_results(
                 {f' / {result.department}' if result.department else ''}
             </div>
 
-            <!-- Data Classification -->
-            <div style="margin-bottom: 12px;">
+            <!-- Data Classification + Quality + Relevance badges -->
+            <div style="margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
                 <span class="dpc-badge {classification_color}">
                     {result.data_classification or 'Unclassified'}
                 </span>
+                {quality_html}
+                {relevance_html}
             </div>
 
             <!-- Regulatory scope tags -->
@@ -234,19 +223,13 @@ def render_results(
             <!-- Update frequency -->
             {f'<div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 12px;"><strong>Updates:</strong> {result.update_frequency}</div>' if result.update_frequency else ''}
 
-            <!-- Data Quality Score -->
-            {quality_html}
-
-            <!-- Relevance Score -->
-            {relevance_html}
-
         </div>
         """
 
         st.html(card_html)
 
-        # Intent action buttons
-        col1, col2, col3 = st.columns(3)
+        # Intent action buttons — 2-col primary row, skip as text link below
+        col1, col2 = st.columns(2)
 
         with col1:
             if st.button(
@@ -260,25 +243,38 @@ def render_results(
 
         with col2:
             if st.button(
-                "✂ REMIX / REUSE",
+                "✂ ADAPT THIS",
                 key=f"remix_{result.id}_{idx}",
                 use_container_width=True,
+                type="secondary",
             ):
                 selected_asset = result
                 action_path = "remix"
 
-        with col3:
-            if st.button(
-                "✕ SKIP",
-                key=f"skip_{result.id}_{idx}",
-                use_container_width=True,
-            ):
-                if "skipped_ids" not in st.session_state:
-                    st.session_state.skipped_ids = []
-                st.session_state.skipped_ids.append(result.id)
-                st.rerun()
+        st.markdown('<div class="dpc-btn-muted" style="margin-top:6px;">', unsafe_allow_html=True)
+        if st.button(
+            "✕ Not what I need — skip",
+            key=f"skip_{result.id}_{idx}",
+            use_container_width=True,
+        ):
+            if "skipped_ids" not in st.session_state:
+                st.session_state.skipped_ids = []
+            st.session_state.skipped_ids.append(result.id)
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
         st.divider()
+
+    # Empty state: user skipped all results
+    if not visible_results and results:
+        st.markdown(
+            '<div style="text-align:center;padding:2rem 1rem;border:1px dashed rgba(13,27,42,0.15);'
+            'border-radius:12px;margin:1rem 0;">'
+            '<p style="color:#5B6A7E;font-size:1rem;margin-bottom:.5rem;">No results left to review.</p>'
+            '<p style="color:#8C9BAA;font-size:.85rem;">You\'ve reviewed all matches. Build a new governed data product below.</p>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
 
     # Bottom CTA: Build your own
     create_html = """

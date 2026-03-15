@@ -14,144 +14,11 @@ No mock data. Production-ready.
 
 import streamlit as st
 import json
+import urllib.parse
 from datetime import date
 from typing import Optional
 from models.data_product import DataProductSpec
 
-
-def _render_completion_gauge(percentage: float) -> str:
-    """
-    Generate SVG circular gauge for completion percentage.
-
-    Args:
-        percentage: Completion percentage (0-100)
-
-    Returns:
-        HTML string with SVG gauge
-    """
-    # SVG configuration
-    cx, cy = 100, 100
-    radius = 90
-    circumference = 2 * 3.14159 * radius
-    offset = circumference * (1 - percentage / 100)
-
-    # Determine color based on percentage
-    if percentage >= 80:
-        color = "#00C48C"  # emerald
-    elif percentage >= 60:
-        color = "#F5A623"  # gold
-    else:
-        color = "#E8384D"  # crimson
-
-    html = f"""
-    <div class="dpc-gauge-container">
-        <svg class="dpc-gauge-svg" viewBox="0 0 200 200">
-            <circle
-                class="dpc-gauge-background"
-                cx="{cx}"
-                cy="{cy}"
-                r="{radius}"
-            />
-            <circle
-                class="dpc-gauge-progress score-{int(percentage//20)*20}-{int((percentage//20)*20)+19}"
-                cx="{cx}"
-                cy="{cy}"
-                r="{radius}"
-                style="stroke-dasharray: {circumference}; stroke-dashoffset: {offset}; stroke: {color};"
-            />
-        </svg>
-        <div class="dpc-gauge-number">{int(percentage)}%</div>
-        <div class="dpc-gauge-label">Complete</div>
-    </div>
-    """
-    return html
-
-
-def render_approval_timeline(current_stage: str = "business_review") -> None:
-    """
-    Render a horizontal approval workflow timeline showing the 5 governance stages.
-
-    Args:
-        current_stage: One of 'draft', 'business_review', 'tech_validation',
-                       'governance_approval', 'published'
-    """
-    stages = [
-        ("draft",               "📝", "Draft",               "Business user creating spec"),
-        ("business_review",     "👤", "Business Review",     "Data owner approves governance"),
-        ("tech_validation",     "🔧", "Tech Validation",     "Engineer builds in Snowflake"),
-        ("governance_approval", "✅", "Governance Approval", "Data steward certifies"),
-        ("published",           "🌐", "Published",           "Live in Collibra catalogue"),
-    ]
-    stage_ids = [s[0] for s in stages]
-    try:
-        current_idx = stage_ids.index(current_stage)
-    except ValueError:
-        current_idx = 1  # default to business_review
-
-    # Build HTML timeline
-    items_html = ""
-    for i, (sid, icon, label, desc) in enumerate(stages):
-        if i < current_idx:
-            # Completed
-            circle_bg = "#00C48C"
-            circle_color = "#fff"
-            circle_content = "✓"
-            label_color = "#00C48C"
-            connector_color = "#00C48C"
-        elif i == current_idx:
-            # Current
-            circle_bg = "#0D1B2A"
-            circle_color = "#fff"
-            circle_content = icon
-            label_color = "#0D1B2A"
-            connector_color = "rgba(13,27,42,0.12)"
-        else:
-            # Future
-            circle_bg = "rgba(13,27,42,0.08)"
-            circle_color = "#8C9BAA"
-            circle_content = str(i + 1)
-            label_color = "#8C9BAA"
-            connector_color = "rgba(13,27,42,0.08)"
-
-        # Connector line (not on last item)
-        connector = ""
-        if i < len(stages) - 1:
-            next_done = (i + 1) <= current_idx
-            conn_color = "#00C48C" if next_done else "rgba(13,27,42,0.12)"
-            connector = (
-                f'<div style="flex:1;height:2px;background:{conn_color};'
-                f'margin-top:18px;margin-left:4px;margin-right:4px;"></div>'
-            )
-
-        # Current stage gets a pulsing ring
-        ring = ""
-        if i == current_idx:
-            ring = "box-shadow:0 0 0 4px rgba(0,194,203,0.25);"
-
-        items_html += (
-            f'<div style="display:flex;flex-direction:column;align-items:center;flex:1;min-width:0;">'
-            f'  <div style="display:flex;align-items:center;width:100%;">'
-            f'    <div style="display:flex;flex-direction:column;align-items:center;flex:1;">'
-            f'      <div style="width:36px;height:36px;border-radius:50%;background:{circle_bg};'
-            f'color:{circle_color};display:flex;align-items:center;justify-content:center;'
-            f'font-size:14px;font-weight:700;flex-shrink:0;{ring}">{circle_content}</div>'
-            f'      <div style="font-size:.72rem;font-weight:600;color:{label_color};'
-            f'text-align:center;margin-top:.35rem;text-transform:uppercase;letter-spacing:.04em;'
-            f'line-height:1.2;">{label}</div>'
-            f'    </div>'
-            f'    {connector}'
-            f'  </div>'
-            f'</div>'
-        )
-
-    st.markdown(
-        f'<div style="margin:1.5rem 0;">'
-        f'  <p style="color:var(--text-secondary);font-size:.75rem;font-weight:600;'
-        f'  text-transform:uppercase;letter-spacing:.1em;margin-bottom:.75rem;">Approval Workflow</p>'
-        f'  <div style="display:flex;align-items:flex-start;gap:0;">{items_html}</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
 
 
 def render_team_assignment(spec: "DataProductSpec") -> None:
@@ -245,9 +112,9 @@ def render_team_assignment(spec: "DataProductSpec") -> None:
         f"Thank you,\nData Governance Team"
     )
 
-    # Preview (collapsed by default)
-    with st.expander("Preview email body", expanded=False):
-        st.text(body)
+    # Preview (open by default so users can copy)
+    with st.expander("Copy email body (for browser-based email clients)", expanded=False):
+        st.code(body, language=None)
 
     # Send button (opens default email client via mailto)
     if recipient and "@" in recipient:
@@ -293,6 +160,81 @@ def render_team_assignment(spec: "DataProductSpec") -> None:
             )
 
 
+def render_colleague_handoff(spec: DataProductSpec, handoff_data: dict) -> None:
+    """
+    Render the colleague handoff section for tech fields.
+
+    Shows pending tech fields, a downloadable partial spec JSON,
+    and a pre-composed mailto link.
+
+    Args:
+        spec: The current DataProductSpec (partial — business fields only)
+        handoff_data: Dict from guided_form._generate_colleague_handoff()
+    """
+    from components.styles import render_guidance
+
+    render_guidance(
+        "The business specification is complete. The following technical fields are best "
+        "completed by your data engineering team. Generate a handoff package below.",
+        label="Colleague Handoff",
+    )
+
+    pending_fields = handoff_data.get("pending_fields", [])
+    skipped_fields = handoff_data.get("skipped_fields", [])
+    spec_json = handoff_data.get("spec_partial_json", "{}")
+    mailto_subject = handoff_data.get("mailto_subject", "Data Product Spec — Tech Fields Needed")
+    mailto_body = handoff_data.get("mailto_body", "")
+
+    # Download partial spec
+    col1, col2 = st.columns(2)
+    with col1:
+        product_name = spec.name.replace(" ", "_") if spec.name else "data_product"
+        st.download_button(
+            label="⬇ Download partial spec (.json)",
+            data=spec_json,
+            file_name=f"{product_name}_partial_spec.json",
+            mime="application/json",
+            use_container_width=True,
+        )
+        st.caption("Attach this to the handoff email")
+
+    with col2:
+        if mailto_body:
+            encoded_subject = urllib.parse.quote(mailto_subject)
+            encoded_body = urllib.parse.quote(mailto_body)
+            mailto_url = f"mailto:?subject={encoded_subject}&body={encoded_body}"
+            st.link_button(
+                "📧 Open handoff email",
+                url=mailto_url,
+                use_container_width=True,
+            )
+            st.caption("Opens your default email client")
+
+    # Pending fields list
+    if pending_fields:
+        st.markdown("#### Technical fields for your colleague")
+        fields_html = '<div class="dpc-handoff-card">'
+        for meta in pending_fields:
+            label = meta.get("label", "")
+            question = meta.get("question", "")
+            can_na = meta.get("can_be_na", True)
+            na_note = " *(optional)*" if can_na else ""
+            fields_html += (
+                f'<div style="padding:10px 0;border-bottom:1px solid rgba(13,27,42,0.08);">'
+                f'<div style="font-size:.8rem;font-weight:700;color:var(--text-1);'
+                f'text-transform:uppercase;letter-spacing:.06em;">{label}{na_note}</div>'
+                f'<div style="font-size:.85rem;color:var(--text-2);margin-top:3px;">{question}</div>'
+                f'</div>'
+            )
+        fields_html += "</div>"
+        st.markdown(fields_html, unsafe_allow_html=True)
+
+    if skipped_fields:
+        with st.expander(f"{len(skipped_fields)} skipped field(s) — also needs attention"):
+            for meta in skipped_fields:
+                st.markdown(f"- **{meta.get('label', '')}**: {meta.get('question', '')}")
+
+
 def render(
     spec: DataProductSpec, narrative: str, concierge_message: str
 ) -> Optional[str]:
@@ -317,12 +259,22 @@ def render(
     st.markdown("Review your data product specification before submission.")
 
     # SECTION A: Completion Dashboard
-    st.markdown("### Completion Dashboard")
-
-    # Render gauge
     completion_pct = spec.completion_percentage()
-    gauge_html = _render_completion_gauge(completion_pct)
-    st.html(gauge_html)
+
+    # Completion bar (replaces circular gauge — cleaner, no overlap)
+    bar_color = "#00C48C" if completion_pct >= 80 else "#F5A623" if completion_pct >= 50 else "#E8384D"
+    st.markdown(
+        f'<div style="margin:1.5rem 0 1rem;">'
+        f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
+        f'<span style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-secondary);">Spec completion</span>'
+        f'<span style="font-size:1.1rem;font-weight:700;color:{bar_color};">{int(completion_pct)}%</span>'
+        f'</div>'
+        f'<div style="background:rgba(13,27,42,0.08);border-radius:100px;height:8px;">'
+        f'<div style="background:{bar_color};width:{completion_pct}%;height:100%;border-radius:100px;transition:width .4s ease;"></div>'
+        f'</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
     # Field status summary
     required_missing = spec.required_missing()
@@ -368,7 +320,17 @@ def render(
     with st.container(border=True):
         st.markdown(spec_markdown)
 
-    render_approval_timeline("business_review")
+    st.markdown(
+        '<div style="margin:1.5rem 0;padding:16px 20px;background:rgba(0,194,203,0.06);'
+        'border-left:3px solid #00C2CB;border-radius:0 8px 8px 0;">'
+        '<p style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;'
+        'color:#006B73;margin:0 0 8px;">What happens next</p>'
+        '<p style="font-size:.85rem;color:#5B6A7E;margin:4px 0;">1. Download the spec and share with your data engineering team to complete the technical fields.</p>'
+        '<p style="font-size:.85rem;color:#5B6A7E;margin:4px 0;">2. The data owner reviews and confirms governance details.</p>'
+        '<p style="font-size:.85rem;color:#5B6A7E;margin:4px 0;">3. Once complete, submit for registration in Collibra.</p>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
     st.divider()
 
     # SECTION C: Downloads
@@ -521,18 +483,6 @@ def render_completion(
 
     st.markdown("## Submission Complete", help="Your data product has been successfully submitted")
 
-    # Reference information
-    reference_number = session_id[:8].upper()
-
-    info_html = f"""
-    <div style="background-color: #F0F4F8; padding: 20px; border-radius: 16px; border-left: 4px solid #00C2CB; margin: 2rem 0;">
-        <div style="font-size: 18px; color: #5B6A7E; margin-bottom: 8px;">Reference Number</div>
-        <div style="font-size: 32px; font-weight: 700; font-family: 'IBM Plex Mono', monospace; color: #0D1B2A;">{reference_number}</div>
-        <div style="font-size: 14px; color: #8C9BAA; margin-top: 12px;">Keep this number for tracking and support inquiries</div>
-    </div>
-    """
-    st.html(info_html)
-
     # Product summary
     st.markdown(f"**Data Product:** {spec.name}")
     if spec.description:
@@ -569,7 +519,7 @@ def render_completion(
 
     # Action button
     if st.button(
-        "🔍 Start a new search",
+        "Start a new spec",
         use_container_width=True,
         type="primary",
     ):

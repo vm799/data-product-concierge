@@ -28,6 +28,7 @@ from models.data_product import (
     BusinessCriticalityEnum,
     RegulatoryFrameworkEnum,
 )
+from components.styles import render_guidance
 
 
 # Required fields per spec model
@@ -328,6 +329,38 @@ def render_progress_bar(current_chapter: int, chapter_names: List[str]):
 
     st.markdown("</div>", unsafe_allow_html=True)
     st.markdown("<hr style='margin:16px 0 8px;border-color:rgba(13,27,42,0.08);'>", unsafe_allow_html=True)
+
+
+def _render_chapter_progress(current_chapter: int, total_chapters: int = 5) -> None:
+    """
+    Render a clean dot stepper for chapter navigation.
+    Dots are the navigation — completed=emerald, active=teal, future=gray.
+    """
+    chapter_labels = {1: "Identity", 2: "Classification", 3: "Governance", 4: "Compliance", 5: "Access"}
+
+    dots_html = '<div class="dpc-stepper">'
+    for i in range(1, total_chapters + 1):
+        label = chapter_labels.get(i, f"Step {i}")
+        if i < current_chapter:
+            dot_cls = "dpc-step-dot--done"
+            step_cls = "dpc-step--done"
+        elif i == current_chapter:
+            dot_cls = "dpc-step-dot--active"
+            step_cls = "dpc-step--active"
+        else:
+            dot_cls = "dpc-step-dot--future"
+            step_cls = "dpc-step--future"
+
+        dots_html += f'<div class="dpc-step {step_cls}">'
+        dots_html += f'  <div class="dpc-step-dot {dot_cls}"></div>'
+        dots_html += f'  <div class="dpc-step-label">{label}</div>'
+        dots_html += f'</div>'
+
+        if i < total_chapters:
+            dots_html += '<div class="dpc-step-connector"></div>'
+
+    dots_html += '</div>'
+    st.markdown(dots_html, unsafe_allow_html=True)
 
 
 def _validate_email(email: str) -> bool:
@@ -684,10 +717,7 @@ def render_chapter(
         st.session_state[snapshot_key] = spec.model_dump()
 
     # Show concierge bubble
-    st.markdown(
-        f'<div class="dpc-concierge">{concierge_message}</div>',
-        unsafe_allow_html=True,
-    )
+    render_guidance(concierge_message)
 
     # Show progress bar
     chapter_names = [CHAPTERS[i]["title"] for i in range(1, 6)]
@@ -1191,20 +1221,21 @@ def render_chapter(
 
     # Navigation buttons
     st.markdown('<div style="margin-top:1.5rem;"></div>', unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1, 2, 1])
+    back_col, mid_col, next_col = st.columns([1, 1, 1])
 
     nav_action = None
 
-    with col1:
+    with back_col:
         if chapter > 1:
             if st.button(
-                "← Previous",
+                "← Back",
                 use_container_width=True,
                 key=f"ch_{chapter}_prev",
+                type="secondary",
             ):
                 nav_action = "prev"
 
-    with col2:
+    with mid_col:
         # Chapter position indicator — centred, no interaction
         fields_here = CHAPTERS[chapter]["fields"]
         required_here = [f for f in fields_here if f in REQUIRED_FIELDS]
@@ -1225,10 +1256,10 @@ def render_chapter(
             unsafe_allow_html=True,
         )
 
-    with col3:
+    with next_col:
         if chapter < 5:
             if st.button(
-                "Looks good → next",
+                "Continue →",
                 use_container_width=True,
                 type="primary",
                 key=f"ch_{chapter}_next",
