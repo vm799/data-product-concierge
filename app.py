@@ -173,11 +173,10 @@ def _get_draft_manager():
     return _draft_manager_instance
 
 
-def _autosave_draft() -> None:
+def _autosave_draft(role: str = None) -> None:
     """
-    Persist the current spec + navigation state to Postgres.
+    Persist the current spec + form navigation state to Postgres.
     Silently no-ops if draft manager is unavailable or in demo mode.
-    Updates session_state.draft_id and session_state.last_saved_ts.
     """
     dm = _get_draft_manager()
     if dm is None or not dm.is_available or _demo_active():
@@ -188,20 +187,47 @@ def _autosave_draft() -> None:
     try:
         user_id = os.getenv("USER_EMAIL") or os.getenv("USER_DISPLAY_NAME") or "anonymous"
         display_name = spec.name or "Untitled draft"
+
+        # Capture form navigation state so resume restores exact position
+        ui_state = {
+            "gf_tier": st.session_state.get("gf_tier"),
+            "gf_field_idx": st.session_state.get("gf_field_idx"),
+            "gf_field_status": st.session_state.get("gf_field_status"),
+            "gf_dynamic_field_list": st.session_state.get("gf_dynamic_field_list"),
+            "gf_active_panel": st.session_state.get("gf_active_panel"),
+            "gf_panel_queue": st.session_state.get("gf_panel_queue"),
+        }
+        # Serialize original_spec if present (for remix diff baseline)
+        orig = st.session_state.get("original_spec")
+        if orig is not None:
+            try:
+                ui_state["original_spec_dict"] = orig.dict()
+            except Exception:
+                pass
+
         draft_id = run_async(dm.save(
             draft_id=st.session_state.get("draft_id"),
             user_id=user_id,
             display_name=display_name,
-            spec_dict=spec.model_dump(mode="json"),
+            spec_dict=spec.dict(),          # Pydantic v1 — use .dict() not .model_dump()
+            ui_state=ui_state,
             step=st.session_state.get("step", "search"),
             chapter=st.session_state.get("chapter", 1),
             path=st.session_state.get("path"),
+            owner_role=role,
         ))
         if draft_id:
             st.session_state.draft_id = draft_id
             st.session_state.last_saved_ts = datetime.now().strftime("%H:%M:%S")
+            # Write audit entry
+            run_async(dm.log_action(
+                draft_id=draft_id,
+                action="autosave",
+                user_id=user_id,
+                role=role or st.session_state.get("path", "business"),
+            ))
     except Exception:
-        pass  # Never crash the app on autosave failure
+        pass  # Never crash on autosave failure
 
 
 # ---------------------------------------------------------------------------
@@ -425,6 +451,28 @@ def handle_search():
                         st.session_state.chapter = record.chapter
                         st.session_state.path = record.path
                         st.session_state.draft_id = record.draft_id
+                        # Restore form navigation state from ui_state
+                        if hasattr(record, 'ui_state') and record.ui_state:
+                            ui = record.ui_state
+                            if ui.get("gf_tier") is not None:
+                                st.session_state["gf_tier"] = ui["gf_tier"]
+                            if ui.get("gf_field_idx") is not None:
+                                st.session_state["gf_field_idx"] = ui["gf_field_idx"]
+                            if ui.get("gf_field_status") is not None:
+                                st.session_state["gf_field_status"] = ui["gf_field_status"]
+                            if ui.get("gf_dynamic_field_list") is not None:
+                                st.session_state["gf_dynamic_field_list"] = ui["gf_dynamic_field_list"]
+                            if ui.get("gf_active_panel") is not None:
+                                st.session_state["gf_active_panel"] = ui["gf_active_panel"]
+                            if ui.get("gf_panel_queue") is not None:
+                                st.session_state["gf_panel_queue"] = ui["gf_panel_queue"]
+                            # Restore original_spec for remix diff
+                            if ui.get("original_spec_dict"):
+                                try:
+                                    from models.data_product import DataProductSpec as _DPS
+                                    st.session_state["original_spec"] = _DPS(**ui["original_spec_dict"])
+                                except Exception:
+                                    pass
                         _audit("draft_resumed", f"resumed draft {record.draft_id[:8]}")
                         st.rerun()
 
@@ -683,6 +731,9 @@ def _handle_guided_form(path_label: str):
     if updated_spec and updated_spec is not st.session_state.spec:
         st.session_state.spec = updated_spec
         _autosave_draft()
+    elif action not in ("idle", None):
+        # Autosave on navigation (skips, panel transitions) even if spec unchanged
+        _autosave_draft()
 
     if action == "handoff":
         _audit("guided_form_complete", f"spec submitted via guided form ({path_label})")
@@ -817,7 +868,7 @@ def handle_handoff():
         else:
             collibra_id = run_async(st.session_state.collibra_client.create_draft_asset(spec))
             run_async(st.session_state.postgres.save_session(
-                st.session_state.session_id, spec.model_dump(), "submitted", collibra_id
+                st.session_state.session_id, spec.dict(), "submitted", collibra_id
             ))
             _audit("submit", f"live submit: {spec.name} → Collibra {collibra_id}")
             st.session_state.collibra_id = collibra_id
@@ -851,6 +902,43 @@ def handle_complete():
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
+
+
+def _handle_shared_draft_url(draft_id: str, role: str) -> None:
+    """
+    Entry point when a colleague arrives via a shared URL.
+    Loads the draft, sets session state, routes to role-scoped form.
+    """
+    dm = _get_draft_manager()
+    if dm is None or not dm.is_available:
+        st.warning("Draft sharing requires a database connection. Running in demo mode.")
+        return
+    try:
+        record = run_async(dm.get_by_invite_token(draft_id))
+        if record is None:
+            # Try loading by draft_id directly as fallback
+            record = run_async(dm.load(draft_id))
+        if record is None:
+            st.error("This shared link has expired or the draft was not found.")
+            return
+
+        # Load spec
+        st.session_state.spec = DataProductSpec(**record.spec_dict)
+        st.session_state.draft_id = record.draft_id
+        st.session_state.path = record.path or "remix"
+        st.session_state.step = "shared_form"
+        st.session_state.shared_role = role
+        st.session_state.shared_product_name = record.display_name
+        st.session_state.shared_draft_loaded = True
+
+        # Restore field status from ui_state so colleague sees existing progress
+        if record.ui_state and record.ui_state.get("gf_field_status"):
+            st.session_state["gf_field_status"] = record.ui_state["gf_field_status"]
+
+        _audit("shared_draft_opened", f"role={role} draft={record.draft_id[:8]}")
+        st.rerun()
+    except Exception:
+        st.error(f"Could not load shared draft. Please ask the sender to reshare the link.")
 
 
 # ---------------------------------------------------------------------------
@@ -965,6 +1053,23 @@ def render_sidebar():
                     )
 
             st.markdown('<div style="height:.5rem;"></div>', unsafe_allow_html=True)
+
+        # ── Share with Team ───────────────────────────────────────────────────
+        _draft_id = st.session_state.get("draft_id")
+        if _draft_id and step in ("path_c", "handoff", "complete"):
+            st.markdown('<hr style="border-color:rgba(77,217,192,.2);margin:.6rem 0;">', unsafe_allow_html=True)
+            with st.expander("🔗 Share with Team", expanded=False):
+                try:
+                    from components.draft_banner import render_share_panel
+                    _field_status = st.session_state.get("gf_field_status")
+                    _spec_name = spec.name if spec else ""
+                    render_share_panel(
+                        draft_id=_draft_id,
+                        field_status=_field_status,
+                        spec_name=_spec_name,
+                    )
+                except Exception as _e:
+                    st.caption(f"Share panel unavailable: {_e}")
 
         # ── RBAC / Role ───────────────────────────────────────────────────────
         st.markdown(
@@ -1204,6 +1309,23 @@ def main():
     # Breadcrumb — shown on every step except search (function returns early for search)
     _render_breadcrumb()
 
+    # ── Shared draft entry via URL params ─────────────────────────────────────
+    _qp_draft_id = None
+    _qp_role = None
+    try:
+        _qp_draft_id = st.query_params.get("draft_id")
+        _qp_role = st.query_params.get("role")
+    except Exception:
+        try:
+            _qp = st.experimental_get_query_params()
+            _qp_draft_id = (_qp.get("draft_id") or [None])[0]
+            _qp_role = (_qp.get("role") or [None])[0]
+        except Exception:
+            pass
+
+    if _qp_draft_id and _qp_role and not st.session_state.get("shared_draft_loaded"):
+        _handle_shared_draft_url(_qp_draft_id, _qp_role)
+
     # Route
     try:
         if step == "auth":
@@ -1224,6 +1346,17 @@ def main():
             handle_handoff()
         elif step == "complete":
             handle_complete()
+        elif step == "shared_form":
+            if _HAS_GUIDED_FORM:
+                from components.shared_draft_entry import render_shared_draft_entry
+                render_shared_draft_entry(
+                    spec=st.session_state.spec,
+                    role=st.session_state.get("shared_role", "tech"),
+                    product_name=st.session_state.get("shared_product_name", ""),
+                    draft_id=st.session_state.get("draft_id", ""),
+                )
+            else:
+                st.info("Shared form requires the guided form component.")
     except Exception as e:
         err = format_error(e)
         _audit("error", err)

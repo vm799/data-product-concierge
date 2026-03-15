@@ -139,6 +139,27 @@ def render_team_assignment(spec: "DataProductSpec") -> None:
                     "product": product_name,
                 })
                 st.success(f"Marked as sent to {recipient}")
+
+        # Shareable in-app link for this role
+        _role_key = {
+            "Data Owner": "owner",
+            "Tech Team / Data Engineer": "tech",
+            "Data Steward": "steward",
+            "Compliance Officer": "compliance",
+        }.get(selected_role, "tech")
+        _draft_id = st.session_state.get("draft_id")
+        if _draft_id:
+            import os as _os
+            _base = _os.getenv("APP_BASE_URL", "http://localhost:8501")
+            _share_url = f"{_base}?draft_id={_draft_id}&role={_role_key}"
+            st.markdown(
+                '<p style="font-size:.75rem;color:#5B6A7E;margin:.75rem 0 .25rem;font-weight:600;">'
+                '🔗 Or share this link — they fill their section directly in the app:</p>',
+                unsafe_allow_html=True,
+            )
+            st.code(_share_url, language=None)
+        else:
+            st.caption("Save your draft to get a shareable link.")
     else:
         st.caption("Enter a recipient email to compose the assignment email.")
 
@@ -460,6 +481,50 @@ def render(
             key="go_back_edit_btn",
         ):
             action_result = "edit"
+
+    # Audit trail expander
+    draft_id = st.session_state.get("draft_id")
+    if draft_id:
+        with st.expander("📋 Audit trail", expanded=False):
+            try:
+                from models.draft_manager import DraftManager
+                import asyncio
+
+                def _run_audit(coro):
+                    try:
+                        loop = asyncio.get_event_loop()
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                    return loop.run_until_complete(coro)
+
+                dm = DraftManager()
+                if dm.is_available:
+                    entries = _run_audit(dm.get_audit_log(draft_id, limit=50))
+                    if entries:
+                        for entry in entries:
+                            ts = entry["ts"].strftime("%d %b %H:%M") if hasattr(entry["ts"], "strftime") else str(entry["ts"])
+                            user = entry.get("user_id") or "unknown"
+                            action = entry.get("action") or ""
+                            role = entry.get("role") or ""
+                            role_str = f" ({role})" if role else ""
+                            field = entry.get("field_name") or ""
+                            field_str = f" — {field}" if field else ""
+                            st.markdown(
+                                f'<div style="display:flex;justify-content:space-between;'
+                                f'padding:.2rem 0;border-bottom:1px solid rgba(13,27,42,0.06);">'
+                                f'<span style="font-size:.78rem;color:#5B6A7E;">'
+                                f'{user}{role_str}: {action}{field_str}</span>'
+                                f'<span style="font-size:.72rem;color:#8C9BAA;">{ts}</span>'
+                                f'</div>',
+                                unsafe_allow_html=True,
+                            )
+                    else:
+                        st.caption("No audit entries yet.")
+                else:
+                    st.caption("Audit trail requires a database connection.")
+            except Exception as e:
+                st.caption(f"Audit trail unavailable: {e}")
 
     return action_result
 

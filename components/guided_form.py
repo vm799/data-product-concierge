@@ -476,52 +476,67 @@ def _generate_colleague_handoff(spec: DataProductSpec, field_status: dict) -> di
 # SPEC PREVIEW (right panel)
 # ---------------------------------------------------------------------------
 
-def _render_spec_preview(spec: DataProductSpec, field_status: dict, current_field: str) -> None:
+def _render_spec_preview(
+    spec: DataProductSpec,
+    field_status: dict,
+    current_field: str,
+    path: str = "create",
+    original_spec: Optional[DataProductSpec] = None,
+) -> None:
     """
     Render the live spec preview in the right panel.
-    Groups fields into labelled sections and colour-codes by status.
+    In remix mode, shows changed fields with strikethrough original → new value.
     """
-    teal_d = "var(--teal-d, #006B73)"
-    gold = "var(--gold, #F5A623)"
-    text3 = "var(--text-3, #8C9BAA)"
-    navy = "var(--navy, #0D1B2A)"
+    teal_d = "#006B73"
+    gold = "#F5A623"
+    text3 = "#8C9BAA"
+    navy = "#0D1B2A"
+    emerald = "#00C48C"
+
+    is_remix = (path == "remix" and original_spec is not None)
 
     def _status_color(field_name: str) -> str:
         status = field_status.get(field_name, FIELD_STATUS_PENDING)
         if field_name == current_field:
             return navy
+        if is_remix:
+            orig = _val_to_str(getattr(original_spec, field_name, None))
+            curr = _val_to_str(getattr(spec, field_name, None))
+            if status == FIELD_STATUS_ANSWERED and orig != curr:
+                return emerald  # changed field
         if status == FIELD_STATUS_ANSWERED:
             return teal_d
         if status == FIELD_STATUS_SKIPPED:
             return gold
         return text3
 
-    def _field_value_str(field_name: str) -> str:
-        val = getattr(spec, field_name, None)
-        if val is None or val == "" or val == []:
-            return "—"
-        if isinstance(val, list):
-            return ", ".join(str(v) for v in val) if val else "—"
-        if isinstance(val, bool):
-            return "Yes" if val else "No"
-        if isinstance(val, (date, datetime)):
-            return val.isoformat()
-        text = str(val)
-        return text[:60] + "…" if len(text) > 60 else text
-
     def _row(field_name: str, label: str) -> str:
-        color = _status_color(field_name)
-        val = _field_value_str(field_name)
+        curr_str = _val_to_str(getattr(spec, field_name, None))
         is_current = field_name == current_field
         weight = "600" if is_current else "400"
         highlight_bg = "background:rgba(0,194,203,0.08);border-radius:4px;padding:2px 4px;" if is_current else ""
+        color = _status_color(field_name)
+
+        # Diff annotation for remix
+        diff_prefix = ""
+        if is_remix:
+            orig_str = _val_to_str(getattr(original_spec, field_name, None))
+            if orig_str != curr_str and orig_str != "—" and curr_str != "—":
+                diff_prefix = (
+                    f'<span style="color:#8C9BAA;text-decoration:line-through;'
+                    f'font-size:10px;margin-right:3px;">{orig_str}</span>'
+                    f'<span style="color:#8C9BAA;font-size:10px;margin-right:3px;">→</span>'
+                )
+            elif orig_str == "—" and curr_str != "—":
+                diff_prefix = '<span style="color:#00C48C;font-size:10px;margin-right:3px;">+</span>'
+
         return (
             f'<div style="display:flex;justify-content:space-between;align-items:baseline;'
             f'margin-bottom:6px;{highlight_bg}">'
             f'<span style="font-size:11px;color:#8C9BAA;text-transform:uppercase;'
             f'letter-spacing:.5px;flex-shrink:0;margin-right:8px;">{label}</span>'
             f'<span style="font-size:12px;color:{color};font-weight:{weight};'
-            f'text-align:right;word-break:break-word;">{val}</span>'
+            f'text-align:right;word-break:break-word;">{diff_prefix}{curr_str}</span>'
             f'</div>'
         )
 
@@ -534,6 +549,28 @@ def _render_spec_preview(spec: DataProductSpec, field_status: dict, current_fiel
             f'{rows_html}'
             f'</div>'
         )
+
+    # Changes counter badge for remix
+    changes_badge = ""
+    if is_remix:
+        all_preview_fields = [
+            "name", "description", "business_purpose",
+            "data_owner_name", "data_owner_email", "data_steward_email",
+            "domain", "data_classification", "pii_flag", "regulatory_scope",
+            "access_level", "sla_tier", "business_criticality", "consumer_teams",
+        ]
+        n_changed = sum(
+            1 for f in all_preview_fields
+            if _val_to_str(getattr(original_spec, f, None)) != _val_to_str(getattr(spec, f, None))
+            and field_status.get(f) == FIELD_STATUS_ANSWERED
+        )
+        if n_changed:
+            changes_badge = (
+                f'<span style="display:inline-block;background:rgba(0,196,140,0.12);'
+                f'color:#006B73;border:1px solid rgba(0,196,140,0.3);border-radius:100px;'
+                f'padding:2px 10px;font-size:.7rem;font-weight:600;margin-bottom:12px;">'
+                f'✎ {n_changed} field{"s" if n_changed != 1 else ""} changed</span>'
+            )
 
     # Build sections
     identity_rows = (
@@ -562,27 +599,24 @@ def _render_spec_preview(spec: DataProductSpec, field_status: dict, current_fiel
         + _row("consumer_teams", "Consumer Teams")
     )
 
-    # Auto-populated section
     today_str = date.today().isoformat()
     auto_html = (
-        f'<div style="display:flex;justify-content:space-between;align-items:baseline;'
-        f'margin-bottom:6px;">'
-        f'<span style="font-size:11px;color:#8C9BAA;text-transform:uppercase;'
-        f'letter-spacing:.5px;flex-shrink:0;margin-right:8px;">Status</span>'
+        f'<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">'
+        f'<span style="font-size:11px;color:#8C9BAA;text-transform:uppercase;letter-spacing:.5px;flex-shrink:0;margin-right:8px;">Status</span>'
         f'<span style="font-size:12px;color:#8C9BAA;">Draft</span>'
         f'</div>'
-        f'<div style="display:flex;justify-content:space-between;align-items:baseline;'
-        f'margin-bottom:6px;">'
-        f'<span style="font-size:11px;color:#8C9BAA;text-transform:uppercase;'
-        f'letter-spacing:.5px;flex-shrink:0;margin-right:8px;">Created</span>'
+        f'<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">'
+        f'<span style="font-size:11px;color:#8C9BAA;text-transform:uppercase;letter-spacing:.5px;flex-shrink:0;margin-right:8px;">Created</span>'
         f'<span style="font-size:12px;color:#8C9BAA;">{today_str}</span>'
         f'</div>'
     )
 
+    preview_label = "Changes" if is_remix else "Live Preview"
     html = (
         f'<div class="dpc-spec-preview" style="padding:16px;">'
-        f'<div style="font-size:13px;font-weight:600;color:#0D1B2A;margin-bottom:16px;">'
-        f'Live Preview</div>'
+        f'<div style="font-size:13px;font-weight:600;color:#0D1B2A;margin-bottom:10px;">'
+        f'{preview_label}</div>'
+        f'{changes_badge}'
         + _section("Identity", identity_rows)
         + _section("Governance", governance_rows)
         + _section("Classification", classification_rows)
@@ -701,16 +735,27 @@ def _render_field_card(
 
     tier_label = tier_label_override if tier_label_override else ("Business — Required" if tier == 1 else "Business — Optional")
 
-    # --- Remix chip ---
+    # --- Remix banner ---
     if path == "remix":
+        _orig = st.session_state.get("original_spec")
+        _orig_name = (_orig.name if _orig and _orig.name else "existing product")
+        _prefilled = sum(
+            1 for f in field_list
+            if field_status.get(f) == FIELD_STATUS_ANSWERED
+        )
         st.markdown(
-            '<span style="background:rgba(245,166,35,0.15);color:#a66d00;'
-            'font-size:11px;font-weight:600;padding:3px 10px;border-radius:12px;'
-            'text-transform:uppercase;letter-spacing:.5px;">'
-            'Pre-filled from existing product</span>',
+            f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;'
+            f'background:rgba(245,166,35,0.08);border:1px solid rgba(245,166,35,0.25);'
+            f'border-radius:8px;padding:8px 12px;">'
+            f'<span style="font-size:1rem;">✂</span>'
+            f'<div>'
+            f'<div style="font-size:.78rem;font-weight:700;color:#a66d00;">Adapting: {_orig_name}</div>'
+            f'<div style="font-size:.72rem;color:#8C9BAA;margin-top:1px;">'
+            f'{_prefilled} fields pre-filled — review and amend any below</div>'
+            f'</div>'
+            f'</div>',
             unsafe_allow_html=True,
         )
-        st.markdown("<div style='margin-bottom:8px;'></div>", unsafe_allow_html=True)
 
     # --- Progress header ---
     pct = int((field_idx / max(total, 1)) * 100)
@@ -878,11 +923,21 @@ def render_guided_form(
     else:
         current_field = ""
 
+    # Retrieve original spec for remix diff
+    original_spec: Optional[DataProductSpec] = st.session_state.get("original_spec")
+
     # Split-pane layout
     left_col, right_col = st.columns([3, 2], gap="large")
 
     with right_col:
-        _render_spec_preview(spec, field_status, current_field)
+        _render_spec_preview(spec, field_status, current_field, path=path, original_spec=original_spec)
+        # Amend panel — jump to any previous answer
+        if field_idx < total:  # Only show during active form, not on dashboard
+            jump_idx = _render_amend_panel(field_list, field_status, spec, path, original_spec)
+            if jump_idx is not None:
+                st.session_state["gf_field_idx"] = jump_idx
+                _scroll_top()
+                st.rerun()
 
     with left_col:
         # --- Tier 1 complete: show maturity dashboard ---

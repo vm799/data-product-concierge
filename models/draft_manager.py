@@ -10,10 +10,13 @@ Database table (auto-created if not exists):
         user_id       VARCHAR(255),
         display_name  VARCHAR(500),
         spec_json     JSONB,
+        ui_state      JSONB        NOT NULL DEFAULT '{}',
         step          VARCHAR(50),
         chapter       INTEGER DEFAULT 1,
         path          VARCHAR(50),
         status        VARCHAR(50) DEFAULT 'draft',
+        invite_token  UUID         UNIQUE,
+        owner_role    VARCHAR(50),
         created_at    TIMESTAMPTZ DEFAULT NOW(),
         updated_at    TIMESTAMPTZ DEFAULT NOW()
     );
@@ -24,12 +27,16 @@ Usage:
     result = await dm.load(draft_id)   # Returns DraftRecord or None
     drafts = await dm.list_user_drafts(user_id, limit=10)
     await dm.delete(draft_id)
+    token = await dm.create_invite_token(draft_id)
+    result = await dm.get_by_invite_token(token)
+    await dm.log_action(draft_id, "field_updated", user_id=uid, field_name="title")
+    entries = await dm.get_audit_log(draft_id)
 """
 
 import json
 import os
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -51,12 +58,15 @@ class DraftRecord:
     user_id: Optional[str]
     display_name: str
     spec_dict: Dict[str, Any]  # Raw dict — caller reconstructs DataProductSpec
+    ui_state: Dict[str, Any]   # Form navigation state
     step: str
     chapter: int
     path: Optional[str]
     status: str
     created_at: datetime
     updated_at: datetime
+    invite_token: Optional[str] = None   # UUID string for shareable links
+    owner_role: Optional[str] = None     # Role of the user who owns this draft
 
 
 # ---------------------------------------------------------------------------
@@ -77,35 +87,54 @@ class DraftManager:
             user_id       VARCHAR(255),
             display_name  VARCHAR(500) NOT NULL DEFAULT '',
             spec_json     JSONB NOT NULL DEFAULT '{}',
+            ui_state      JSONB        NOT NULL DEFAULT '{}',
             step          VARCHAR(50)  NOT NULL DEFAULT 'search',
             chapter       INTEGER      NOT NULL DEFAULT 1,
             path          VARCHAR(50),
             status        VARCHAR(50)  NOT NULL DEFAULT 'draft',
+            invite_token  UUID         UNIQUE,
+            owner_role    VARCHAR(50),
             created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
             updated_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
         );
         CREATE INDEX IF NOT EXISTS idx_drafts_user_id  ON data_product_drafts(user_id);
         CREATE INDEX IF NOT EXISTS idx_drafts_updated  ON data_product_drafts(updated_at DESC);
+        CREATE TABLE IF NOT EXISTS data_product_audit_log (
+            id          BIGSERIAL PRIMARY KEY,
+            draft_id    UUID NOT NULL,
+            user_id     VARCHAR(255),
+            role        VARCHAR(50),
+            action      VARCHAR(100) NOT NULL,
+            field_name  VARCHAR(100),
+            old_value   TEXT,
+            new_value   TEXT,
+            ts          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_draft_id ON data_product_audit_log(draft_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_ts ON data_product_audit_log(ts DESC);
     """
 
     UPSERT_SQL = """
         INSERT INTO data_product_drafts
-            (draft_id, user_id, display_name, spec_json, step, chapter, path, status, updated_at)
-        VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, NOW())
+            (draft_id, user_id, display_name, spec_json, ui_state, step, chapter, path, status, owner_role, updated_at)
+        VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8, $9, $10, NOW())
         ON CONFLICT (draft_id) DO UPDATE SET
             user_id       = EXCLUDED.user_id,
             display_name  = EXCLUDED.display_name,
             spec_json     = EXCLUDED.spec_json,
+            ui_state      = EXCLUDED.ui_state,
             step          = EXCLUDED.step,
             chapter       = EXCLUDED.chapter,
             path          = EXCLUDED.path,
             status        = EXCLUDED.status,
+            owner_role    = EXCLUDED.owner_role,
             updated_at    = NOW()
         RETURNING draft_id::text;
     """
 
     SELECT_SQL = """
         SELECT draft_id::text, user_id, display_name, spec_json,
+               ui_state::text, invite_token::text, owner_role,
                step, chapter, path, status, created_at, updated_at
         FROM   data_product_drafts
         WHERE  draft_id = $1;
@@ -113,6 +142,7 @@ class DraftManager:
 
     LIST_SQL = """
         SELECT draft_id::text, user_id, display_name, spec_json,
+               ui_state::text, invite_token::text, owner_role,
                step, chapter, path, status, created_at, updated_at
         FROM   data_product_drafts
         WHERE  user_id = $1 AND status != 'deleted'
@@ -180,6 +210,8 @@ class DraftManager:
         chapter: int = 1,
         path: Optional[str] = None,
         status: str = "draft",
+        ui_state: Optional[Dict[str, Any]] = None,
+        owner_role: Optional[str] = None,
     ) -> Optional[str]:
         """
         Upsert a draft. Creates a new UUID if draft_id is None.
@@ -193,13 +225,14 @@ class DraftManager:
 
         did = str(uuid.UUID(draft_id)) if draft_id else str(uuid.uuid4())
         spec_json = json.dumps(spec_dict, default=str)
+        ui_state_json = json.dumps(ui_state or {}, default=str)
 
         try:
             async with pool.acquire() as conn:
                 row = await conn.fetchrow(
                     self.UPSERT_SQL,
-                    did, user_id, display_name, spec_json,
-                    step, chapter, path, status,
+                    did, user_id, display_name, spec_json, ui_state_json,
+                    step, chapter, path, status, owner_role,
                 )
                 return row["draft_id"] if row else did
         except Exception:
@@ -226,17 +259,23 @@ class DraftManager:
                 row = await conn.fetchrow(self.SELECT_SQL, did)
             if not row:
                 return None
+            ui_state = dict(json.loads(row["ui_state"])) if row["ui_state"] else {}
+            invite_token = row["invite_token"]
+            owner_role = row["owner_role"]
             return DraftRecord(
                 draft_id=row["draft_id"],
                 user_id=row["user_id"],
                 display_name=row["display_name"],
                 spec_dict=dict(row["spec_json"]) if row["spec_json"] else {},
+                ui_state=ui_state,
                 step=row["step"],
                 chapter=row["chapter"],
                 path=row["path"],
                 status=row["status"],
                 created_at=row["created_at"],
                 updated_at=row["updated_at"],
+                invite_token=invite_token,
+                owner_role=owner_role,
             )
         except Exception:
             return None
@@ -263,12 +302,15 @@ class DraftManager:
                     user_id=r["user_id"],
                     display_name=r["display_name"],
                     spec_dict=dict(r["spec_json"]) if r["spec_json"] else {},
+                    ui_state=dict(json.loads(r["ui_state"])) if r["ui_state"] else {},
                     step=r["step"],
                     chapter=r["chapter"],
                     path=r["path"],
                     status=r["status"],
                     created_at=r["created_at"],
                     updated_at=r["updated_at"],
+                    invite_token=r["invite_token"],
+                    owner_role=r["owner_role"],
                 )
                 for r in rows
             ]
@@ -287,6 +329,118 @@ class DraftManager:
             return True
         except Exception:
             return False
+
+    async def create_invite_token(self, draft_id: str) -> Optional[str]:
+        """
+        Generate a UUID invite token for the draft and store it.
+        Returns the token string, or None if unavailable.
+        Idempotent — returns existing token if one already exists.
+        """
+        pool = await self._get_pool()
+        if pool is None:
+            return None
+        try:
+            did = str(uuid.UUID(draft_id))
+            token = str(uuid.uuid4())
+            # Use INSERT ... ON CONFLICT DO NOTHING then SELECT to get existing
+            sql = """
+                UPDATE data_product_drafts
+                SET invite_token = COALESCE(invite_token, $2::uuid)
+                WHERE draft_id = $1
+                RETURNING invite_token::text;
+            """
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(sql, did, token)
+            return row["invite_token"] if row else None
+        except Exception:
+            return None
+
+    async def get_by_invite_token(self, token: str) -> Optional[DraftRecord]:
+        """Load a draft by its invite token (used for shared URLs)."""
+        pool = await self._get_pool()
+        if pool is None:
+            return None
+        try:
+            tok = str(uuid.UUID(token))
+        except ValueError:
+            return None
+        sql = """
+            SELECT draft_id::text, user_id, display_name, spec_json, ui_state,
+                   step, chapter, path, status, created_at, updated_at,
+                   invite_token::text, owner_role
+            FROM data_product_drafts
+            WHERE invite_token = $1 AND status != 'deleted';
+        """
+        try:
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(sql, tok)
+            if not row:
+                return None
+            return DraftRecord(
+                draft_id=row["draft_id"],
+                user_id=row["user_id"],
+                display_name=row["display_name"],
+                spec_dict=dict(row["spec_json"]) if row["spec_json"] else {},
+                ui_state=dict(row["ui_state"]) if row["ui_state"] else {},
+                step=row["step"],
+                chapter=row["chapter"],
+                path=row["path"],
+                status=row["status"],
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+                invite_token=row["invite_token"],
+                owner_role=row["owner_role"],
+            )
+        except Exception:
+            return None
+
+    async def log_action(
+        self,
+        draft_id: str,
+        action: str,
+        user_id: Optional[str] = None,
+        role: Optional[str] = None,
+        field_name: Optional[str] = None,
+        old_value: Optional[str] = None,
+        new_value: Optional[str] = None,
+    ) -> None:
+        """Write an audit entry. Fire-and-forget — never raises."""
+        pool = await self._get_pool()
+        if pool is None:
+            return
+        sql = """
+            INSERT INTO data_product_audit_log
+                (draft_id, user_id, role, action, field_name, old_value, new_value)
+            VALUES ($1::uuid, $2, $3, $4, $5, $6, $7);
+        """
+        try:
+            did = str(uuid.UUID(draft_id))
+            async with pool.acquire() as conn:
+                await conn.execute(sql, did, user_id, role, action,
+                                   field_name,
+                                   str(old_value)[:500] if old_value is not None else None,
+                                   str(new_value)[:500] if new_value is not None else None)
+        except Exception:
+            pass
+
+    async def get_audit_log(self, draft_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """Return recent audit entries for a draft, newest first."""
+        pool = await self._get_pool()
+        if pool is None:
+            return []
+        sql = """
+            SELECT id, user_id, role, action, field_name, old_value, new_value, ts
+            FROM data_product_audit_log
+            WHERE draft_id = $1::uuid
+            ORDER BY ts DESC LIMIT $2;
+        """
+        try:
+            did = str(uuid.UUID(draft_id))
+            async with pool.acquire() as conn:
+                rows = await conn.fetch(sql, did, limit)
+            return [dict(r) for r in rows]
+        except Exception:
+            return []
 
     @property
     def is_available(self) -> bool:
