@@ -30,7 +30,6 @@ Preview mode uses a local rule engine — no LLM required.
 Live mode routes through concierge.chat_turn().
 """
 
-import asyncio
 import json
 import re
 import random
@@ -38,6 +37,8 @@ from typing import Dict, List, Optional, Tuple
 from urllib.parse import quote
 
 import streamlit as st
+
+from core.async_utils import run_async as _run_async
 
 from models.data_product import (
     DataProductSpec,
@@ -520,15 +521,6 @@ _CONFIRM_VARIANTS = [
 # ============================================================================
 # HELPERS
 # ============================================================================
-
-def _run_async(coro):
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    return loop.run_until_complete(coro)
-
 
 def _is_help_request(text: str) -> bool:
     low = text.lower().strip()

@@ -33,6 +33,93 @@ from core.field_registry import (
 from components.styles import render_guidance
 
 
+# ============================================================================
+# AI HELPERS
+# ============================================================================
+
+
+def _get_field_explanation(field_name: str, meta: dict, spec) -> str:
+    """
+    Return field explanation — AI-generated in live mode (cached per domain+classification),
+    static registry text in demo mode or when concierge unavailable.
+    """
+    static = meta.get("explanation", "")
+    concierge = st.session_state.get("concierge")
+    if not concierge:
+        return static
+    try:
+        from app import _demo_active
+        if _demo_active():
+            return static
+    except Exception:
+        return static
+
+    domain = getattr(spec, "domain", "") or ""
+    cls = getattr(spec, "data_classification", "") or ""
+    cache_key = f"field_expl_{field_name}_{domain[:10]}_{cls[:10]}"
+    if cache_key in st.session_state:
+        return st.session_state[cache_key]
+
+    from core.async_utils import run_async
+    context = (
+        f"Domain: {domain or 'unknown'}. "
+        f"Classification: {cls or 'unknown'}. "
+        f"{meta.get('question', '')}"
+    )
+    try:
+        result = run_async(concierge.explain_field(field_name, context), timeout=8)
+        st.session_state[cache_key] = result or static
+    except Exception:
+        st.session_state[cache_key] = static
+    return st.session_state[cache_key]
+
+
+def _maybe_normalise(field_name: str, raw_value, meta: dict, valid_options: dict) -> tuple:
+    """
+    If in live mode and field has option constraints, fuzzy-match user input to canonical enum.
+
+    Returns:
+        (normalised_value, needs_disambig: bool, disambig_msg: str)
+    """
+    opts = (valid_options or {}).get(field_name, []) or meta.get("options", [])
+    concierge = st.session_state.get("concierge")
+    raw_str = str(raw_value).strip() if raw_value is not None else ""
+    if not opts or not concierge or not raw_str:
+        return raw_value, False, ""
+    try:
+        from app import _demo_active
+        if _demo_active():
+            return raw_value, False, ""
+    except Exception:
+        return raw_value, False, ""
+
+    from core.async_utils import run_async
+    try:
+        r = run_async(
+            concierge.validate_and_normalise(field_name, raw_str, opts),
+            timeout=8,
+        )
+        if r.confidence >= 0.7 and r.matched:
+            st.toast(f"✓ Matched: {r.matched}", icon="✓")
+            return r.matched, False, ""
+        elif r.confidence >= 0.4 and r.matched:
+            return raw_value, True, f'Did you mean "{r.matched}"? ({r.message})'
+        else:
+            if r.message:
+                st.caption(f"⚠ {r.message}")
+            return raw_value, False, ""
+    except Exception:
+        return raw_value, False, ""
+
+
+_IMPACT_TRIGGER_FIELDS = {
+    "data_classification",
+    "pii_flag",
+    "regulatory_scope",
+    "data_sovereignty_flag",
+}
+
+
 # ---------------------------------------------------------------------------
 # CONTEXTUAL INJECTION RULES
 # Mapping: (field_name, trigger_value) → fields to inject immediately after
@@ -774,6 +861,16 @@ def _render_field_card(
         unsafe_allow_html=True,
     )
 
+    # --- AI suggestion badge ---
+    _ai_suggested = st.session_state.get("ai_suggested_fields", set())
+    if field_name in _ai_suggested:
+        st.html(
+            '<div style="display:inline-flex;align-items:center;gap:4px;'
+            'background:rgba(0,107,115,0.08);border:1px solid rgba(0,107,115,0.2);'
+            'border-radius:100px;padding:2px 10px;font-size:.72rem;color:#006B73;'
+            'font-weight:600;margin-bottom:.6rem;">💡 AI suggestion — review and confirm</div>'
+        )
+
     # --- Field label ---
     st.markdown(
         f'<div class="dpc-field-label" style="font-size:20px;font-weight:700;'
@@ -789,9 +886,18 @@ def _render_field_card(
     )
 
     # --- Guidance ---
-    explanation = meta.get("explanation", "")
+    explanation = _get_field_explanation(field_name, meta, spec)
     if explanation:
         render_guidance(explanation)
+
+    # --- Remix governance impact banner ---
+    _impact_key = f"impact_msg_{field_name}"
+    if _impact_key in st.session_state:
+        st.html(
+            f'<div style="background:rgba(245,166,35,0.1);border-left:3px solid #F5A623;'
+            f'border-radius:0 8px 8px 0;padding:10px 14px;margin-bottom:.8rem;'
+            f'font-size:.85rem;color:#5B6A7E;">⚡ {st.session_state[_impact_key]}</div>'
+        )
 
     # --- Widget ---
     current_value = getattr(spec, field_name, None)
@@ -849,6 +955,20 @@ def _render_field_card(
                     st.error("Please enter a valid email address (e.g. name@company.com)")
                     return updated_spec, "idle"  # Don't advance, show error
 
+            # Normalise free-text input against Collibra options
+            normalised_value, needs_disambig, disambig_msg = _maybe_normalise(
+                field_name, raw_value, meta, valid_options
+            )
+            if needs_disambig:
+                st.warning(disambig_msg)
+                # Store pending disambiguation — user must confirm on next render
+                st.session_state[f"disambig_{field_name}"] = {
+                    "raw": raw_value,
+                    "matched": disambig_msg,
+                }
+                return updated_spec, "idle"
+            raw_value = normalised_value
+
             updated_spec = _assign_value(spec, field_name, raw_value)
             field_status[field_name] = FIELD_STATUS_ANSWERED
             st.session_state["gf_field_status"] = field_status
@@ -863,6 +983,47 @@ def _render_field_card(
                             if extra_field not in dynamic_list:
                                 dynamic_list.insert(insert_pos, extra_field)
                 st.session_state["gf_dynamic_field_list"] = dynamic_list
+
+            # Remix governance impact analysis
+            if path == "remix" and field_name in _IMPACT_TRIGGER_FIELDS:
+                _original_spec = st.session_state.get("original_spec")
+                if _original_spec:
+                    _orig_val = _val_to_str(getattr(_original_spec, field_name, None))
+                    _new_val = _val_to_str(getattr(updated_spec, field_name, None))
+                    if _orig_val != _new_val:
+                        _concierge = st.session_state.get("concierge")
+                        _demo = False
+                        try:
+                            from app import _demo_active
+                            _demo = _demo_active()
+                        except Exception:
+                            pass
+                        if _concierge and not _demo:
+                            from core.async_utils import run_async
+                            try:
+                                _impact = run_async(
+                                    _concierge.explain_field_impact(
+                                        field_name,
+                                        _orig_val,
+                                        _new_val,
+                                        {
+                                            "domain": getattr(updated_spec, "domain", None),
+                                            "data_classification": getattr(updated_spec, "data_classification", None),
+                                            "pii_flag": getattr(updated_spec, "pii_flag", None),
+                                            "regulatory_scope": getattr(updated_spec, "regulatory_scope", None),
+                                        },
+                                    ),
+                                    timeout=8,
+                                )
+                                if _impact and _impact.strip():
+                                    st.session_state[f"impact_msg_{field_name}"] = _impact
+                            except Exception:
+                                pass
+
+            # Clear AI suggestion badge once user confirms this field
+            _ai_suggested = st.session_state.get("ai_suggested_fields", set())
+            _ai_suggested.discard(field_name)
+            st.session_state["ai_suggested_fields"] = _ai_suggested
 
             st.session_state["gf_field_idx"] = field_idx + 1
             _scroll_top()

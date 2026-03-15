@@ -171,6 +171,7 @@ def _reset_form_state() -> None:
         "gf_active_panel", "gf_panel_queue", "gf_colleague_handoff",
         "shared_field_idx", "shared_field_status", "shared_spec",
         "shared_submission_complete", "shared_draft_loaded",
+        "nlq_done",  # clear so NLQ intake shows for each new product
     ]:
         st.session_state.pop(key, None)
 
@@ -550,6 +551,7 @@ def handle_search():
                             except Exception as exc:
                                 logger.warning("original_spec deserialization failed: %s", exc)
                                 # don't set original_spec — diff view will just show no changes
+                        st.session_state["nlq_done"] = True  # skip NLQ intake on resume
                         _audit("draft_resumed", f"resumed draft {record.draft_id[:8]}")
                         st.rerun()
 
@@ -971,6 +973,21 @@ def handle_chapter_form(path_label: str):
 
 def handle_create_conversation():
     """Handle the CREATE flow (path_c)."""
+    # NLQ intake gate — only shown once per new product (skipped on draft resume)
+    if not st.session_state.get("nlq_done"):
+        try:
+            from components.nlq_intake import render_nlq_intake
+            spec, nlq_submitted = render_nlq_intake(
+                st.session_state.spec,
+                st.session_state.get("live_valid_options") or {},
+            )
+            if spec is not None:
+                st.session_state.spec = spec
+            if not nlq_submitted:
+                st.stop()  # Wait for user to submit NLQ intake before showing form
+        except ImportError:
+            pass  # nlq_intake not yet available — proceed without it
+
     if _HAS_GUIDED_FORM:
         _handle_guided_form("create")
         return
@@ -1142,6 +1159,7 @@ def _handle_shared_draft_url(draft_id: str, role: str) -> None:
         st.session_state.shared_role = role
         st.session_state.shared_product_name = record.display_name
         st.session_state.shared_draft_loaded = True
+        st.session_state["nlq_done"] = True  # skip NLQ intake — draft already has a spec
 
         # Restore field status from ui_state so colleague sees existing progress
         if record.ui_state and record.ui_state.get("gf_field_status"):

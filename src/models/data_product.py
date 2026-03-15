@@ -165,7 +165,7 @@ class PathRecommendation(BaseModel):
 
 class NormalisedValue(BaseModel):
     """Result of value normalization/matching."""
-    matched: bool
+    matched: Optional[str]          # The canonical matched option string, or None if no match
     confidence: float = Field(ge=0.0, le=1.0)
     message: str
 

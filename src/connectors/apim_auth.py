@@ -302,3 +302,16 @@ class APIMTokenManager:
         )
 
         return headers
+
+    async def get_llm_headers(self) -> dict:
+        """
+        Return auth headers for LLM calls routed through APIM (Azure OpenAI).
+        Reuses the existing APIM bearer token cache — no new auth roundtrip needed.
+        """
+        base = self.get_auth_headers()
+        return {
+            "Authorization": base["Authorization"],
+            "X-APIM-Subscription-Key": base["X-APIM-Subscription-Key"],
+            "api-key": base["Authorization"].removeprefix("Bearer "),
+            "Content-Type": "application/json",
+        }

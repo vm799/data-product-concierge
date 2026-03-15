@@ -12,7 +12,7 @@ import os
 from typing import Optional
 
 import boto3
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, AsyncAzureOpenAI
 
 from models.data_product import (
     AssetResult,
@@ -76,11 +76,34 @@ class DataProductConcierge:
         else:
             self.openai_api_key = os.getenv("OPENAI_API_KEY")
             self.openai_model = os.getenv("OPENAI_MODEL", "gpt-4o")
-            self.openai_client = AsyncOpenAI(api_key=self.openai_api_key)
-            logger.info(
-                "Concierge initialized with OpenAI backend",
-                extra={"model": self.openai_model, "request_id": self.request_id},
-            )
+            self._apim_tm = None
+            self._llm_via_apim = False
+            if os.getenv("LLM_VIA_APIM", "").lower() == "true":
+                from connectors.apim_auth import APIMTokenManager
+                self._apim_tm = APIMTokenManager()
+                apim_base = os.getenv("APIM_BASE_URL", "").rstrip("/")
+                self.openai_client = AsyncAzureOpenAI(
+                    azure_endpoint=f"{apim_base}/openai",
+                    api_version=os.getenv("APIM_OPENAI_API_VERSION", "2024-02-01"),
+                    azure_deployment=os.getenv("APIM_OPENAI_DEPLOYMENT", "gpt-4o"),
+                    api_key="placeholder",  # overridden per-call via extra_headers
+                )
+                self._llm_via_apim = True
+                logger.info(
+                    "Concierge initialized with APIM-routed Azure OpenAI",
+                    extra={
+                        "endpoint": f"{apim_base}/openai",
+                        "deployment": os.getenv("APIM_OPENAI_DEPLOYMENT", "gpt-4o"),
+                        "request_id": self.request_id,
+                    },
+                )
+            else:
+                self.openai_client = AsyncOpenAI(api_key=self.openai_api_key)
+                self._llm_via_apim = False
+                logger.info(
+                    "Concierge initialized with OpenAI backend",
+                    extra={"model": self.openai_model, "request_id": self.request_id},
+                )
 
     async def _call_llm(
         self, messages: list[dict], temperature: float = 0.3, json_mode: bool = False
@@ -127,6 +150,9 @@ class DataProductConcierge:
         )
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
+        if getattr(self, "_llm_via_apim", False) and self._apim_tm:
+            apim_headers = await self._apim_tm.get_llm_headers()
+            kwargs["extra_headers"] = apim_headers
         response = await self.openai_client.chat.completions.create(**kwargs)
         return response.choices[0].message.content
 
@@ -502,6 +528,70 @@ Now write one sentence for '{field_name}':"""
             # Fallback explanation
             return f"{field_name} is an important field for properly documenting your data product."
 
+    async def explain_field_impact(
+        self,
+        field_name: str,
+        old_value: str,
+        new_value: str,
+        spec_context: dict,
+    ) -> str:
+        """
+        Given a changed field on the remix path, return a 1-2 sentence plain-English
+        explanation of governance implications — what else now needs review or becomes required.
+
+        Args:
+            field_name: The field that changed (e.g. "data_classification")
+            old_value: Previous value as string
+            new_value: New value as string
+            spec_context: Dict with keys: domain, data_classification, pii_flag, regulatory_scope
+
+        Returns:
+            1-2 sentence implication string, or empty string if no significant impact.
+        """
+        domain = spec_context.get("domain") or "unknown"
+        classification = spec_context.get("data_classification") or "unknown"
+        pii_flag = spec_context.get("pii_flag")
+        pii_str = "yes" if pii_flag else "no"
+        reg_scope = spec_context.get("regulatory_scope") or []
+        reg_str = ", ".join(str(r) for r in reg_scope) if reg_scope else "none"
+
+        field_label = field_name.replace("_", " ").title()
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a data governance concierge at a financial services firm. "
+                    "You help data product owners understand governance implications of their decisions. "
+                    "Be precise, concise, and only mention implications that are genuinely material."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"The user is adapting an existing data product spec. "
+                    f"They changed '{field_label}' from '{old_value}' to '{new_value}'.\n\n"
+                    f"Current spec context: domain={domain}, classification={classification}, "
+                    f"pii={pii_str}, regulatory_scope={reg_str}.\n\n"
+                    f"In 1-2 sentences, explain any governance implications of this change — "
+                    f"what other fields now become required, what reviews are triggered, or what the team "
+                    f"should know. If there are no significant implications, return an empty string. "
+                    f"Only mention implications that are genuinely material. Do not pad."
+                ),
+            },
+        ]
+
+        try:
+            result = await self._call_llm(messages, temperature=0.2, json_mode=False)
+            text = (result or "").strip()
+            # If the model returns something like "No significant implications." treat as empty
+            if text.lower().startswith("no significant") or text.lower() == "none":
+                return ""
+            return text
+        except Exception as exc:
+            logger.warning("explain_field_impact failed", extra={"error": str(exc)})
+            return ""
+
     async def validate_and_normalise(
         self, field_name: str, raw_value: str, valid_options: list[str]
     ) -> NormalisedValue:
@@ -557,7 +647,7 @@ Rules:
             matched = response_json.get("matched") if confidence >= 0.7 else None
 
             normalized = NormalisedValue(
-                matched=matched is not None, confidence=confidence, message=response_json.get(
+                matched=matched, confidence=confidence, message=response_json.get(
                     "message", "Normalization attempted"
                 )
             )
@@ -579,7 +669,7 @@ Rules:
             )
             # Fallback: low confidence, no match
             return NormalisedValue(
-                matched=False, confidence=0.3, message=f"Could not confidently match '{raw_value}' to available options."
+                matched=None, confidence=0.3, message=f"Could not confidently match '{raw_value}' to available options."
             )
 
     async def generate_handoff_narrative(self, spec: DataProductSpec) -> str:
