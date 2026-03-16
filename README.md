@@ -91,12 +91,12 @@ AI is not decorative here. It is wired into six specific points in the journey w
 
 ```mermaid
 flowchart TD
-    A[System prompt\ngrounding rule] --> B[JSON mode\nAPI-enforced]
-    B --> C[Enum options\nin every prompt]
-    C --> D[Confidence threshold\nenforced in Python]
-    D --> E[Human 💡 badge\nreview and confirm]
-    E --> F[Demo mode\nkill-switch]
-    F --> G[Timeout fallback\n8s / 20s]
+    A[System prompt grounding rule] --> B[JSON mode API-enforced]
+    B --> C[Enum options in every prompt]
+    C --> D[Confidence threshold enforced in Python]
+    D --> E[Human 💡 badge review and confirm]
+    E --> F[Demo mode kill-switch]
+    F --> G[Timeout fallback 8s / 20s]
 
     style A fill:#f8f9fa,stroke:#6c757d
     style B fill:#f8f9fa,stroke:#6c757d
@@ -150,15 +150,15 @@ flowchart LR
     Search([Search Collibra]) --> Exists{Already exists?}
     Exists -->|Yes| Remix[Remix existing]
     Exists -->|No| NLQ[NLQ intake]
-    Remix --> PrePop[Guided form\npre-populated]
-    NLQ --> Extract[AI extraction\nchat_turn]
-    Extract --> Badges[Guided form\nwith 💡 badges]
-    PrePop --> Complete{All fields\ncomplete?}
+    Remix --> PrePop[Guided form pre-populated]
+    NLQ --> Extract[AI extraction chat_turn]
+    Extract --> Badges[Guided form with 💡 badges]
+    PrePop --> Complete{All fields complete?}
     Badges --> Complete
     Complete -->|No — loop back| Badges
     Complete -->|Yes| Handoff([Handoff screen])
-    Handoff --> Export[Export\n.md / .json / .csv]
-    Handoff --> Submit[Submit for\nreview]
+    Handoff --> Export[Export .md / .json / .csv]
+    Handoff --> Submit[Submit for review]
 ```
 
 ---
@@ -417,12 +417,12 @@ APIM path: `APIMTokenManager.get_llm_headers()` (sync — not async) returns fre
 
 ```mermaid
 flowchart TD
-    Start([LLM call]) --> APIM{LLM_VIA_APIM\n= true?}
-    APIM -->|Yes| AzureOAI[AsyncAzureOpenAI\nvia APIM gateway]
-    AzureOAI --> APIMHeaders[APIM injects auth\nheaders per call]
-    APIM -->|No| Bedrock{LLM_PROVIDER\n= bedrock?}
-    Bedrock -->|Yes| BRT[boto3 Bedrock\nClaude]
-    Bedrock -->|No| Direct[AsyncOpenAI\ndirect — default]
+    Start([LLM call]) --> APIM{LLM_VIA_APIM = true?}
+    APIM -->|Yes| AzureOAI[AsyncAzureOpenAI via APIM gateway]
+    AzureOAI --> APIMHeaders[APIM injects auth headers per call]
+    APIM -->|No| Bedrock{LLM_PROVIDER = bedrock?}
+    Bedrock -->|Yes| BRT[boto3 Bedrock Claude]
+    Bedrock -->|No| Direct[AsyncOpenAI direct — default]
 ```
 
 ---
@@ -608,11 +608,11 @@ Demo mode is not just for demos. It is the failure mode when credentials are mis
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Suggested : AI extracts field\n_apply_extracted_to_spec
+    [*] --> Suggested : AI extracts field _apply_extracted_to_spec
 
     Suggested --> Accepted : User clicks Continue
     Suggested --> Overridden : User types new value
-    Suggested --> Suggested : User skips field\nbadge stays
+    Suggested --> Suggested : User skips field badge stays
 
     Accepted --> [*]
     Overridden --> [*]
@@ -622,11 +622,11 @@ stateDiagram-v2
         💡 badge rendered in UI.
     end note
     note right of Accepted
-        Field removed from\nai_suggested_fields.
+        Field removed from ai_suggested_fields.
         Badge disappears.
     end note
     note right of Overridden
-        Field removed from\nai_suggested_fields.
+        Field removed from ai_suggested_fields.
         Badge disappears.
     end note
 ```
@@ -657,15 +657,15 @@ When `validate_and_normalise()` returns `0.4 ≤ confidence < 0.7`:
 
 ```mermaid
 flowchart TD
-    A([User types value\nand presses Continue]) --> B[_maybe_normalise called]
+    A([User types value and presses Continue]) --> B[_maybe_normalise called]
     B --> C{confidence?}
-    C -->|< 0.4| D[Warn caption shown\nvalue passed through unchanged]
-    C -->|0.4 to 0.7| E[Store in session state\ndisambig_field]
-    E --> F[Form stays on same card\nfield NOT advanced]
+    C -->|< 0.4| D[Warn caption shown value passed through unchanged]
+    C -->|0.4 to 0.7| E[Store in session state disambig_field]
+    E --> F[Form stays on same card field NOT advanced]
     F --> G{User chooses}
-    G -->|Use matched value| H[Canonical value assigned\nfield advances]
-    G -->|Keep my value| I[Raw value assigned\nfield advances]
-    C -->|>= 0.7| J[Silent accept\ngreen toast shown]
+    G -->|Use matched value| H[Canonical value assigned field advances]
+    G -->|Keep my value| I[Raw value assigned field advances]
+    C -->|>= 0.7| J[Silent accept green toast shown]
 
     style D fill:#fff3cd,stroke:#ffc107
     style E fill:#cce5ff,stroke:#004085

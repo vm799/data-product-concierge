@@ -22,27 +22,17 @@
 
 ## Delivery Timeline
 
-```mermaid
-gantt
-    title Data Product Concierge — Delivery Timeline
-    dateFormat YYYY-MM
-    axisFormat %b %Y
+> **Note:** Delivery dates and sprint allocation are tracked in Excel. The phase groupings below reflect actual build order — not projected calendar dates.
 
-    section Shipped
-    Phase 0 Foundation         :done, p0, 2025-10, 2025-11
-    Phase 1 AI Wiring          :done, p1, 2025-11, 2026-01
-    Phase 2 UX                 :done, p2, 2026-01, 2026-03
-
-    section Next Up
-    Approval Workflow          :crit, active, aw, 2026-04, 2026-06
-    Role-Scoped Visibility     :crit, active, rs, 2026-04, 2026-06
-    Duplicate Detection        :crit, active, dd, 2026-07, 2026-09
-
-    section Horizon
-    Phase 4 Discovery          :p4, 2026-07, 2026-10
-    Phase 5 Enterprise         :p5, 2026-10, 2027-01
-    Phase 6 AI Agents          :p6, 2027-01, 2027-07
-```
+| Phase | Status | What shipped |
+|-------|--------|-------------|
+| Phase 0 — Foundation | ✅ Done | Data model, Collibra connector, APIM auth, async utils, field registry |
+| Phase 1 — AI Wiring | ✅ Done | NLQ intake, `chat_turn` extraction, `explain_field`, `validate_and_normalise`, `explain_field_impact`, APIM-routed LLM |
+| Phase 2 — UX | ✅ Done | Guided card form, 💡 suggestion badges, disambiguation flow, ⚡ governance banners, handoff summary, draft autosave, exports |
+| Phase 3 — Governance | 🗓 Next | Approval workflow, role-scoped visibility, steward notifications |
+| Phase 4 — Discovery | 🗓 Planned | Duplicate detection, embedding similarity, lineage graph |
+| Phase 5 — Enterprise | 🗓 Planned | React + FastAPI rebuild (decision gated on adoption), SSO, RBAC |
+| Phase 6 — AI Agents | 🗓 Horizon | Autonomous quality scoring, proactive gap detection |
 
 ---
 
@@ -119,15 +109,15 @@ flowchart LR
     A([Search Collibra]) --> B{Already exists?}
     B -->|Yes| C[Remix existing product]
     B -->|No| D[Describe in NLQ]
-    C --> F[Guided form\npre-populated]
-    D --> E[AI extracts fields\nchat_turn]
+    C --> F[Guided form pre-populated]
+    D --> E[AI extracts fields chat_turn]
     E --> F
-    F --> G{All required\nfields complete?}
+    F --> G{All required fields complete?}
     G -->|No — loop back| F
     G -->|Yes| H([Handoff screen])
-    H --> I[Export\n.md / .json / .csv]
-    H --> J[Email owner /\nsteward / tech team]
-    H --> K[Submit for\ngovernance review]
+    H --> I[Export .md / .json / .csv]
+    H --> J[Email owner / steward / tech team]
+    H --> K[Submit for governance review]
 ```
 
 ---
@@ -180,8 +170,8 @@ stateDiagram-v2
     Draft --> Candidate : Steward sign-off
     Candidate --> Approved : Compliance sign-off
     Approved --> Deprecated : Owner deprecates
-    Candidate --> Draft : Steward rejects\n(with comments)
-    Approved --> Candidate : Compliance rejects\n(with comments)
+    Candidate --> Draft : Steward rejects (with comments)
+    Approved --> Candidate : Compliance rejects (with comments)
     Deprecated --> [*]
 
     note right of Draft
@@ -189,10 +179,10 @@ stateDiagram-v2
         No sign-off required.
     end note
     note right of Candidate
-        Audit log records\nsteward + timestamp.
+        Audit log records steward + timestamp.
     end note
     note right of Approved
-        approved_at and\napproved_by written\nto spec.
+        approved_at and approved_by written to spec.
     end note
 ```
 
@@ -244,13 +234,13 @@ stateDiagram-v2
 
 ```mermaid
 flowchart TD
-    A([User describes product]) --> B[Generate embedding\nfrom description]
-    B --> C[Similarity search\nagainst catalogue]
-    C --> D{Similar product\nfound?}
-    D -->|Yes — score above threshold| E[Show existing products\nwith Remix option]
+    A([User describes product]) --> B[Generate embedding from description]
+    B --> C[Similarity search against catalogue]
+    C --> D{Similar product found?}
+    D -->|Yes — score above threshold| E[Show existing products with Remix option]
     E --> F{User chooses}
-    F -->|Remix existing| G([Open remix form\npre-populated])
-    F -->|Create new anyway| H([Proceed to\nNLQ intake form])
+    F -->|Remix existing| G([Open remix form pre-populated])
+    F -->|Create new anyway| H([Proceed to NLQ intake form])
     D -->|No match| H
 ```
 
@@ -308,13 +298,13 @@ The honest assessment:
 
 ```mermaid
 flowchart TD
-    A([Current: Streamlit]) --> B[Phase 5 trigger point\nQ4 2026]
-    B --> C{Adoption and funding\njustify rebuild?}
+    A([Current: Streamlit]) --> B[Phase 5 trigger point Q4 2026]
+    B --> C{Adoption and funding justify rebuild?}
     C -->|Yes| D[React + FastAPI]
     C -->|No| E[Continue Streamlit]
-    D --> F[src/ agents / models /\nconnectors transfer unchanged]
-    F --> G[Render layer only\nchanges]
-    E --> H[Streamlit Cloud\nor Docker — same deploy]
+    D --> F[src/ agents / models / connectors transfer unchanged]
+    F --> G[Render layer only changes]
+    E --> H[Streamlit Cloud or Docker — same deploy]
 
     style D fill:#d4edda,stroke:#28a745
     style E fill:#fff3cd,stroke:#ffc107
