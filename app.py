@@ -88,8 +88,6 @@ if st.session_state.get("_app_state_version") != _APP_STATE_VERSION:
 # Mode detection
 # ---------------------------------------------------------------------------
 LIVE_CAPABLE = bool(os.getenv("APIM_BASE_URL"))  # Can we connect to live APIs?
-# Legacy alias used by sidebar (read-only — do not use in handlers; use _demo_active())
-PREVIEW_MODE = not LIVE_CAPABLE
 
 
 def _demo_active() -> bool:

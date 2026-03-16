@@ -1,15 +1,18 @@
 # Data Product Concierge — Product Roadmap
 
 ```
-  ╔══════════════════════════════════════════════════════════════════════════╗
-  ║  From a 25-minute compliance form to an 8-minute AI-guided review.      ║
-  ║  This roadmap shows where we are, what ships next, and where we go.     ║
-  ╚══════════════════════════════════════════════════════════════════════════╝
+  ╔═══════════════════════════════════════════════════════════════════╗
+  ║  From a blank 35-field form to an AI-guided review.              ║
+  ║  This is where we are, what comes next, and how we get there.    ║
+  ╚═══════════════════════════════════════════════════════════════════╝
 ```
 
-> This document is structured in two halves.
-> **Pages 1–2: Business case, delivered value, and next features** — for stakeholders and funding conversations.
-> **Pages 3–4: Technical phases and architecture decisions** — for the engineering team.
+> **Part One** — Business case, delivered value, and next features.
+> **Part Two** — Technical detail for the engineering team.
+
+```
+  Status:  ✅ Shipped   🗓 Planned (date targeted)   💡 Proposed (not yet scoped)
+```
 
 ---
 
@@ -17,39 +20,77 @@
 
 ---
 
-## Where We Started
+## Delivery Timeline
 
-> *"Fill in these 35 fields to register your data product."*
+```mermaid
+gantt
+    title Data Product Concierge — Delivery Timeline
+    dateFormat YYYY-MM
+    axisFormat %b %Y
 
-That was the experience. A form. Constrained dropdowns with values no one recognised. No guidance. No context. No way to know which fields applied to which team. Business users either abandoned it, filled it in wrong, or handed it to someone else who then had to chase them for the answers.
+    section Shipped
+    Phase 0 Foundation         :done, p0, 2025-10, 2025-11
+    Phase 1 AI Wiring          :done, p1, 2025-11, 2026-01
+    Phase 2 UX                 :done, p2, 2026-01, 2026-03
 
-The result: a Collibra catalogue full of incomplete, inaccurate, or duplicate data product registrations. Governance without governance.
+    section Next Up
+    Approval Workflow          :crit, active, aw, 2026-04, 2026-06
+    Role-Scoped Visibility     :crit, active, rs, 2026-04, 2026-06
+    Duplicate Detection        :crit, active, dd, 2026-07, 2026-09
+
+    section Horizon
+    Phase 4 Discovery          :p4, 2026-07, 2026-10
+    Phase 5 Enterprise         :p5, 2026-10, 2027-01
+    Phase 6 AI Agents          :p6, 2027-01, 2027-07
+```
 
 ---
 
-## What We Changed
+## The Problem We Solved
+
+Registering a data product meant opening a 35-field governance form. Most fields had constrained values pulled from Collibra that no one outside the governance team had seen before. There was no guidance, no context, no indication of which fields applied to which role.
+
+The practical result: incomplete registrations, invalid enum values in Collibra, and a handoff process that relied on emails and attachments with no audit of what changed or who changed it.
+
+---
+
+## What We Built and What Changed
 
 ```
-  BEFORE                              AFTER
-  ──────────────────────────────────  ──────────────────────────────────────
-  35-field blank form                 "Describe your data product" → AI
-                                      pre-fills what it can → you confirm
+  BEFORE                              NOW
+  ──────────────────────────────────  ─────────────────────────────────────
+  Blank 35-field form                 Describe your data product in plain
+                                      English → AI extracts what it can
+                                      → you confirm each suggestion
 
-  Free-text enum entry                Fuzzy match to canonical Collibra
-  → invalid values in Collibra        values, confidence-gated in code
+  Free-text entry for constrained     AI fuzzy-matches your input to
+  fields → invalid values enter       canonical Collibra values.
+  Collibra                            Confidence-gated: high confidence
+                                      accepted silently, medium asks you
+                                      to confirm, low passes through with
+                                      a warning. Only runs in live mode
+                                      on option fields.
 
-  No guidance per field               Context-aware 1-line hint on every
-                                      field, specific to your domain
+  No guidance on any field            One-line context-aware hint below
+                                      every field label, specific to your
+                                      domain and classification
 
-  "Send this to the tech team"        Role-scoped deep link — they open
-  → email → attachment → confusion    the form, see only their fields
+  Changing a classification had no    ⚡ Amber banner explains the
+  visible governance consequence      governance implication before you
+                                      confirm the change. Only fires on
+                                      4 specific governance-trigger fields.
 
-  Change a classification, no         ⚡ Amber banner: "This now requires
-  awareness of consequences           DPIA review and sovereignty flag"
+  Handoff = email + JSON attachment   Shareable link with role parameter
+                                      — recipient opens the draft directly.
+                                      Role-based field routing is the
+                                      next phase (see Phase 3).
 
-  Completion = submit button          AI-narrated summary: "Your Risk
-  with no context                     Analytics spec is ready — 3 PII
-                                      fields flagged for compliance"
+  No summary at completion            AI-generated personalised summary
+                                      at the handoff screen, cached per
+                                      spec so it doesn't re-call on reload
+
+  No export                           Download as Markdown, Collibra JSON,
+                                      or Snowflake CSV at any point
 ```
 
 ---
@@ -57,355 +98,364 @@ The result: a Collibra catalogue full of incomplete, inaccurate, or duplicate da
 ## What Is Live Today  ✅
 
 ```
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │                                                                     │
-  │   DISCOVER          CREATE              GOVERN          HAND OFF   │
-  │                                                                     │
-  │   Search Collibra   Describe in         Remix existing  Email owner │
-  │   Find existing  →  plain English  →    products with  Tech team   │
-  │   assets before     AI pre-fills        ⚡ governance   Steward     │
-  │   creating          the form            impact banners  Compliance  │
-  │                          ↓                   ↓               ↓     │
-  │                     Review 💡              Confirm         Export  │
-  │                     AI suggestions        or override     .md      │
-  │                     not type answers                      .json    │
-  │                                                           .csv     │
-  └─────────────────────────────────────────────────────────────────────┘
+  ┌───────────────────────────────────────────────────────────────┐
+  │                                                               │
+  │   DISCOVER        CREATE           GOVERN        HAND OFF    │
+  │                                                               │
+  │  Search Collibra  Describe it  →   Remix with   Email owner  │
+  │  before creating  AI pre-fills     ⚡ impact     Tech team   │
+  │                   the form         banners       Steward     │
+  │                       ↓                ↓             ↓       │
+  │                  Review 💡         Confirm or   Export       │
+  │                  suggestions       override     .md .json    │
+  │                  not type them                  .csv         │
+  └───────────────────────────────────────────────────────────────┘
 ```
 
-### The numbers
-| Metric | Before | After |
-|--------|--------|-------|
-| Time to complete a spec | ~25 minutes | ~8 minutes |
-| Invalid enum entries reaching Collibra | Frequent | Zero — matched in code |
-| Fields requiring human typing | 35 | ~8 (remainder AI-suggested) |
-| Awareness of governance change impact | None | Immediate, field-level |
-| Handoff to tech team | Email + attachment | Deep link, role-scoped form |
-| Spec export formats | None | Markdown · Collibra JSON · Snowflake CSV |
+### Full User Journey — What's Shipped
+
+```mermaid
+flowchart LR
+    A([Search Collibra]) --> B{Already exists?}
+    B -->|Yes| C[Remix existing product]
+    B -->|No| D[Describe in NLQ]
+    C --> F[Guided form\npre-populated]
+    D --> E[AI extracts fields\nchat_turn]
+    E --> F
+    F --> G{All required\nfields complete?}
+    G -->|No — loop back| F
+    G -->|Yes| H([Handoff screen])
+    H --> I[Export\n.md / .json / .csv]
+    H --> J[Email owner /\nsteward / tech team]
+    H --> K[Submit for\ngovernance review]
+```
 
 ---
 
-## What Ships Next  🔨
+### What is verifiably true today
 
-These are the three highest-value features that complete the core product. Each has a clear before/after for users.
+| What | What it does | What it does not do (yet) |
+|------|-------------|--------------------------|
+| NLQ intake | Extracts fields from a plain-English description via GPT-4o. Only populates blank fields — never overwrites data you've entered. | Cannot guarantee how many fields it extracts. Depends on how much detail you provide. |
+| Fuzzy enum matching | Matches free-text input to canonical Collibra values with a confidence score. Threshold enforced in Python, not by the model. | Only runs on option fields in the guided form path, only in live mode. |
+| Context-aware hints | One-line field explanation generated by AI, cached so it doesn't call the model twice for the same field + context. | Falls back to static registry text on timeout or error. Not AI in demo mode. |
+| Governance impact banners | Shows implication when you change classification, PII flag, regulatory scope, or data sovereignty flag on the remix path. | Only those 4 fields. Returns nothing for immaterial changes. |
+| Handoff deep link | `?draft_id=...&role=tech` opens the draft in a role-scoped session. | The form does not yet filter visible fields by role. That is Phase 3. |
+| Completion summary | AI-narrated summary at the handoff screen. | Does not block submission. Falls back to no summary card if the LLM call fails. |
+| Exports | Markdown, Collibra JSON, Snowflake CSV — generated from the spec model. | These are downloads. Nothing is written back to Collibra automatically. |
+| Audit trail | Every field change logged in `DraftManager` with timestamp and session ID. | Requires a database connection (Postgres via `POSTGRES_DSN`). Not available without it. |
 
 ---
 
-### Next Feature 1 — Multi-Role Collaborative Editing
+## What Ships Next  🗓
+
+Three features that address the biggest remaining gaps.
+
+---
+
+### 1 — Formal Approval Workflow
 **Target: Q2 2026**
 
 ```
   TODAY                               NEXT
-  ──────────────────────────────────  ──────────────────────────────
-  Business user fills their fields    Business user fills their fields
-  → exports JSON                      → tech team opens same draft
-  → tech team receives email          → each role sees only their
-  → tech team opens a different         section
-    form, re-enters some context      → "Sarah (Data Owner) is
-  → no audit of who changed what        currently editing Classification"
-                                      → conflict resolution if two
-                                        users touch the same field
-                                      → full audit trail throughout
+  ──────────────────────────────────  ──────────────────────────────────
+  Submit button sends the spec.       Draft → Candidate → Approved
+  No formal review gate.              → Deprecated lifecycle.
+  No visibility of what state         Each transition requires a sign-off
+  a product is in post-submission.    from a specific role.
+                                      Email notification at each step.
+                                      Audit log records who approved
+                                      what and when.
 ```
 
-**Business value:** Eliminates the back-and-forth handoff loop. One draft. Multiple contributors. No data re-entry. Governance is co-created, not chased.
+**Why this matters:** Without a formal gate, submission is indistinguishable from approval. Governance requires traceability of who signed off on what.
+
+**What it needs:** State machine on `DraftManager`, email notification on each transition, role-based sign-off logic.
+
+#### Approval Workflow State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> Draft : Spec created
+    Draft --> Candidate : Steward sign-off
+    Candidate --> Approved : Compliance sign-off
+    Approved --> Deprecated : Owner deprecates
+    Candidate --> Draft : Steward rejects\n(with comments)
+    Approved --> Candidate : Compliance rejects\n(with comments)
+    Deprecated --> [*]
+
+    note right of Draft
+        AI suggestions active.
+        No sign-off required.
+    end note
+    note right of Candidate
+        Audit log records\nsteward + timestamp.
+    end note
+    note right of Approved
+        approved_at and\napproved_by written\nto spec.
+    end note
+```
 
 ---
 
-### Next Feature 2 — Formal Approval Workflow
+### 2 — Role-Scoped Field Visibility
 **Target: Q2 2026**
 
 ```
-  Draft  ──→  Candidate  ──→  Approved  ──→  Deprecated
-    │               │               │
-    │         Steward sign-off      Compliance sign-off
-    │         on classification     on regulatory scope
-    │
-    └── Any team member can progress;
-        role-specific sign-offs gate each transition
+  TODAY                               NEXT
+  ──────────────────────────────────  ──────────────────────────────────
+  Deep link captures the role.        Business role → sees only
+  The form shows all fields           business fields.
+  regardless of who opened it.        Tech role → sees only tech fields.
+                                      Steward → sees everything.
+                                      Role inferred from URL param
+                                      until SSO is available.
 ```
 
-**Business value:** Specs are currently submitted with no formal review gate. This introduces the `Draft → Candidate → Approved → Deprecated` lifecycle that Collibra expects, with email notifications at each transition and an audit log of who approved what and when.
+**Why this matters:** The handoff only works if the tech team sees what they need to fill in, not a full 35-field form they weren't involved in designing.
+
+**What it needs:** Role-to-field-group mapping in `field_registry.py`, routing logic in `guided_form.py` and `chapter_form.py`.
 
 ---
 
-### Next Feature 3 — Duplicate Detection Before Creation
+### 3 — Duplicate Detection Before Creation
 **Target: Q3 2026**
 
 ```
-  User types: "Payments fraud detection for Risk team"
+  User describes: "Payments fraud detection for Risk team"
        ↓
   Before the form opens:
-  ┌─────────────────────────────────────────────────────┐
-  │  ⚠  This looks similar to 2 existing products:     │
-  │                                                     │
-  │  • Payments Fraud Detection Daily  (87% similar)   │
-  │    Risk domain · GDPR · Last updated Jan 2026      │
-  │    [ View ] [ Remix this instead ]                  │
-  │                                                     │
-  │  • Fraud Analytics Aggregated  (71% similar)       │
-  │    [ View ] [ Remix this instead ]                  │
-  │                                                     │
+  ┌──────────────────────────────────────────────────────┐
+  │  ⚠  Similar products already exist:                 │
+  │                                                      │
+  │  · Payments Fraud Detection Daily                   │
+  │    Risk domain · GDPR · Updated monthly            │
+  │    [ View ]  [ Remix this instead → ]               │
+  │                                                      │
   │  [ Create new anyway → ]                            │
-  └─────────────────────────────────────────────────────┘
+  └──────────────────────────────────────────────────────┘
 ```
 
-**Business value:** Prevents catalogue sprawl. Surfaces reuse opportunities before the user invests 8 minutes in a spec that already exists. Reduces steward review burden by stopping duplicates at source.
+**Why this matters:** Catalogue sprawl happens before creation, not after. Surfacing similar products at the point of intent prevents duplicates without blocking legitimate new products.
+
+**What it needs:** Vector embeddings on existing asset descriptions, similarity search against Collibra before NLQ intake submits.
+
+#### Duplicate Detection Flow
+
+```mermaid
+flowchart TD
+    A([User describes product]) --> B[Generate embedding\nfrom description]
+    B --> C[Similarity search\nagainst catalogue]
+    C --> D{Similar product\nfound?}
+    D -->|Yes — score above threshold| E[Show existing products\nwith Remix option]
+    E --> F{User chooses}
+    F -->|Remix existing| G([Open remix form\npre-populated])
+    F -->|Create new anyway| H([Proceed to\nNLQ intake form])
+    D -->|No match| H
+```
 
 ---
 
 ## The Longer Horizon  🗓
 
 ```
-  Q2 2026          Q3 2026          Q4 2026          2027
-  ───────────────  ───────────────  ───────────────  ──────────────────
-  Multi-role       Semantic search  Collibra         Autonomous spec
-  editing          upgrade          write-back        research
-                   (vector          (direct API       (AI reads
-  Approval         embeddings)      POST on submit)   catalogue,
-  workflow                                            pre-fills
-                   Lineage          Snowflake DDL     lineage)
-  Governance       visualisation    generation
-  rules engine                                        Regulatory
-                   Maturity         Slack / Teams     change
-                   scoring          notifications     monitoring
-                   dashboard
-                                    SSO + RBAC        Proactive
-                                    (SAML / OIDC)     quality alerts
+  Q2 2026             Q3 2026             Q4 2026             2027
+  ─────────────────   ─────────────────   ─────────────────   ──────────────────
+  Approval workflow   Duplicate           Collibra            Autonomous field
+                      detection           write-back          research
+  Role-scoped                             (direct API         (AI pre-fills
+  field visibility    Semantic search     POST on submit,     lineage from
+                      (vector             not just export)    catalogue)
+  Governance rules    embeddings)
+  engine                                  Snowflake DDL       Regulatory change
+                      Lineage             generation          monitoring
+                      visualisation
+                                          Slack / Teams       Proactive quality
+                      Maturity            notifications       alerts
+                      scoring
+                                          SSO + RBAC
 ```
 
 ---
 
-## The Platform Question — React Rebuild
+## The Platform Question — Streamlit Now, React Later
 
-The current application is built on **Streamlit** — a Python-first rapid prototyping framework. It delivered the entire product, including all AI wiring, in a fraction of the time a traditional frontend would have taken.
+The current application is built on **Streamlit** — a Python-first framework that let us ship the full product, including all AI wiring, before a traditional frontend build would have reached first demo.
 
 The honest assessment:
 
 ```
-  STREAMLIT (NOW)                     REACT + PYTHON API (FUTURE)
+  STREAMLIT (NOW)                     REACT + API (IF AND WHEN JUSTIFIED)
   ──────────────────────────────────  ──────────────────────────────────
-  ✅ Full product shipped fast         ✅ Real-time collaborative editing
-  ✅ AI pipeline fully wired           ✅ WebSocket presence indicators
-  ✅ No frontend/backend split         ✅ Offline draft capability
-  ✅ One deployment, one codebase      ✅ Native SSO / RBAC integration
-                                       ✅ Custom component library
-  ⚠  Page reruns on every action       ✅ Micro-interactions, animations
-  ⚠  No WebSockets (limits co-edit)   ✅ Mobile-responsive
-  ⚠  Limited offline capability        ✅ Enterprise security model
-  ⚠  Streamlit-specific UX patterns
+  ✅ Full product shipped              ✅ Real-time co-editing via WebSocket
+  ✅ All AI methods wired              ✅ Role-based field visibility
+  ✅ No frontend/backend split         ✅ Native SSO / RBAC at the HTTP layer
+  ✅ One codebase, one deployment      ✅ Mobile layout
+  ✅ Demo mode out of the box          ✅ Custom component library
+                                       ✅ No full-page rerun on every action
+  ⚠  Full page reruns on interaction
+  ⚠  No WebSockets — co-edit is       ⚠  Longer build and QA cycle
+     polling-based or deferred         ⚠  Requires frontend engineers
+  ⚠  Streamlit Cloud controls         ⚠  Two deployments to maintain
+     the runtime version
 ```
 
-**Recommendation:** Continue building features on Streamlit through Phase 4 (Q3 2026). The multi-role editing and approval workflow will push against Streamlit's real-time limits. If adoption and funding justify it, Phase 5 (Q4 2026) is the natural inflection point to begin a React frontend with a FastAPI backend — the AI agent layer and data models transfer unchanged.
+**The key fact:** Every concierge method, every Pydantic model, every Collibra connector, and the entire AI pipeline lives in `src/` — it has no Streamlit dependency. A React rebuild replaces the render layer only. The logic transfers as-is.
 
-**The React rebuild does not start from scratch.** Every concierge method, every Pydantic model, every Collibra connector, and the entire AI pipeline lives in `src/` — entirely independent of Streamlit. The frontend is the only thing that changes.
+**Recommendation:** Streamlit through Q3 2026. Phase 5 (Q4 2026 — Collibra write-back, SSO, production-grade RBAC) is the natural inflection point to evaluate a React + FastAPI split, if adoption and funding justify the investment. There is no deadline to rebuild — only a trigger.
+
+#### Streamlit → React Decision Path
+
+```mermaid
+flowchart TD
+    A([Current: Streamlit]) --> B[Phase 5 trigger point\nQ4 2026]
+    B --> C{Adoption and funding\njustify rebuild?}
+    C -->|Yes| D[React + FastAPI]
+    C -->|No| E[Continue Streamlit]
+    D --> F[src/ agents / models /\nconnectors transfer unchanged]
+    F --> G[Render layer only\nchanges]
+    E --> H[Streamlit Cloud\nor Docker — same deploy]
+
+    style D fill:#d4edda,stroke:#28a745
+    style E fill:#fff3cd,stroke:#ffc107
+    style F fill:#cce5ff,stroke:#004085
+```
 
 ---
 ---
 
-# Part Two — Technical Phases
-
----
-
-## Status Key
-
-```
-  ✅  Shipped and in production
-  🔨  In active development
-  🗓  Planned — date confirmed
-  💡  Proposed — subject to prioritisation
-```
+# Part Two — Technical Detail
 
 ---
 
 ## Phase 0 — Foundation  ✅  *(Shipped)*
 
-> Everything the product stands on. None of this is visible to users, but everything depends on it.
+> Nothing visible to users. Everything the product depends on.
+
+**Application**
+- ✅ Streamlit orchestrator — session state, routing, demo/live mode switching
+- ✅ `src/` package layout with `sys.path` bridge from project root
+- ✅ `_app_state_version` guard — clears widget state on Streamlit version change, prevents selectbox deserialisation errors
+- ✅ `_demo_active()` — zero API and LLM calls in demo mode across all 6 AI touchpoints
+
+**Data model**
+- ✅ Pydantic v2 `DataProductSpec` — 35+ fields, full validation, enums for all constrained values
+- ✅ `to_collibra_json()`, `to_snowflake_csv()`, `to_markdown()` serialisation methods
+- ✅ `completion_percentage()`, `required_missing()`, `optional_missing()` — computed spec health
+- ✅ `core/field_registry.py` — single source of truth for field metadata, labels, questions, options, owners
 
 **Infrastructure**
-- ✅ Streamlit app orchestrator — session state, routing, demo/live mode switching
-- ✅ `src/` package layout with `sys.path` bridge from app root
-- ✅ Pydantic v2 `DataProductSpec` — 35+ fields, full validation, enums for all constrained values
-- ✅ `to_collibra_json()`, `to_snowflake_csv()`, `to_markdown()` — all three export formats
-- ✅ `completion_percentage()`, `required_missing()`, `optional_missing()` — computed spec health
-- ✅ `core/field_registry.py` — single source of truth for field metadata
-- ✅ `core/async_utils.run_async(coro, timeout)` — shared async bridge, never redefined locally
-- ✅ `_app_state_version` guard — prevents widget deserialisation errors on Streamlit upgrades
-- ✅ `_demo_active()` guard — zero API/LLM calls in demo mode, across all 6 touchpoints
-
-**Connectivity**
+- ✅ `core/async_utils.run_async(coro, timeout)` — single shared async bridge, never redefined locally
 - ✅ APIM token manager with cache and sync `get_llm_headers()`
 - ✅ Collibra OAuth2 client
 - ✅ asyncpg connection pool with `ConcurrentEditError` optimistic locking
 - ✅ `DraftManager` — spec JSON persistence, role metadata, audit log
 
-**LLM backends — three paths, one interface**
-- ✅ Direct OpenAI `AsyncOpenAI` — GPT-4o
+**LLM routing — three backends, one interface**
+- ✅ Direct OpenAI `AsyncOpenAI` — GPT-4o via `OPENAI_API_KEY`
 - ✅ AWS Bedrock Claude — `boto3.client("bedrock-runtime")`
-- ✅ APIM-routed Azure OpenAI — `AsyncAzureOpenAI`, per-call header injection via `LLM_VIA_APIM=true`
+- ✅ APIM-routed Azure OpenAI — `AsyncAzureOpenAI`, per-call APIM headers via `LLM_VIA_APIM=true`
 
 ---
 
-## Phase 1 — AI Wiring & NLQ Pipeline  ✅  *(Shipped)*
+## Phase 1 — AI Wiring  ✅  *(Shipped)*
 
-> The transformation from form-filling to suggestion-reviewing. All six AI touchpoints wired, guarded, cached, and fallback-safe.
+> Six AI touchpoints. Each guarded, cached, and fallback-safe.
 
-**NLQ → pre-filled form**
-- ✅ `nlq_intake.py` — plain-English text area before guided form opens
-- ✅ `chat_turn()` on intake text — single LLM call, extracts all possible fields
-- ✅ `_apply_extracted_to_spec()` — merges onto blank fields only, never overwrites user data
-- ✅ `ai_suggested_fields` session state set — drives the 💡 badge in guided form
-- ✅ Badge lifecycle: disappears on Continue (accept) or user edit (override)
+**NLQ → spec**
+- ✅ `nlq_intake.py` — plain-English text area before guided form
+- ✅ `chat_turn()` on intake — extracts fields via GPT-4o in `json_mode=True`
+- ✅ `_apply_extracted_to_spec()` — skips any field where `current is not None/empty`. AI cannot overwrite user data.
+- ✅ `ai_suggested_fields` set in session state — drives 💡 badge. Badge removed on accept or override.
 
-**Smart field matching**
-- ✅ `validate_and_normalise()` wired into Continue handler for all option fields
+**Enum matching**
+- ✅ `validate_and_normalise()` in Continue handler — option fields only, live mode only
 - ✅ Confidence clamped in Python: `min(1.0, max(0.0, score))`
-- ✅ `matched = None` if `confidence < 0.7` — enforced in code, not by model
-- ✅ Medium confidence → `Did you mean "X"?` confirm/deny UI; button shows actual value
+- ✅ `matched = None` if `confidence < 0.7` — enforced in Python, not by model
+- ✅ Medium confidence (0.4–0.7): `Did you mean "X"?` with confirm/keep — button shows actual value
 
-**Contextual field guidance**
-- ✅ `explain_field()` below every guided form label
-- ✅ Cached per `(field_name, domain[:10], cls[:10])` — no repeat LLM calls
-- ✅ Timeout fallback → static registry text
+**Field guidance**
+- ✅ `explain_field()` — one-sentence hint, cached per `(field, domain[:10], cls[:10])`
+- ✅ Falls back to static `field_registry` explanation on timeout or error
 
-**Remix governance impact**
-- ✅ `explain_field_impact()` on: `data_classification`, `pii_flag`, `regulatory_scope`, `data_sovereignty_flag`
-- ✅ Cached by `(field, hash(old_value), hash(new_value))` — one call per unique change
-- ✅ Returns `""` for immaterial changes — code strips "no significant" prefix responses
+**Governance impact**
+- ✅ `explain_field_impact()` — fires on `data_classification`, `pii_flag`, `regulatory_scope`, `data_sovereignty_flag` only
+- ✅ Cached by `(field, hash(old), hash(new))` — one LLM call per unique change per session
+- ✅ Code strips "no significant implications" responses — no banner for immaterial changes
 
-**Completion narrative**
-- ✅ `generate_completion_message()` wired into handoff screen
-- ✅ Cached by spec name — one call maximum per session
+**Completion summary**
+- ✅ `generate_completion_message()` at handoff — cached by spec name, one call max per session
+- ✅ Rendered in teal card above handoff screen. Absent (silently) if call fails.
 
-**Conversational path**
-- ✅ `is_complete=True` from `chat_turn()` auto-triggers handover
-- ✅ `with st.spinner("Thinking…")` wraps every LLM call — visual feedback
-- ✅ `asyncio.TimeoutError` caught separately from generic exceptions everywhere
-- ✅ All `except Exception` blocks log `exc_info=True`
+**Conversational chat path**
+- ✅ `is_complete=True` from `chat_turn()` auto-triggers handover screen
+- ✅ `st.spinner("Thinking…")` wraps every `chat_turn()` call
+- ✅ `asyncio.TimeoutError` caught separately from `Exception` — timeout is expected under load
+- ✅ All exception handlers log `exc_info=True`
 
 ---
 
-## Phase 2 — UX Hardening  ✅  *(Shipped)*
-
-> End-to-end flow review: every screen tested, every dead-end fixed.
+## Phase 2 — UX  ✅  *(Shipped)*
 
 **Handoff screen**
-- ✅ Completion bar — colour-coded: green ≥80% · amber ≥50% · red <50%
-- ✅ 3-card status grid: Fields Complete · Optional Missing · Required Missing
-- ✅ Submit blocked with explicit instruction: *"Click ← Go back and edit below"*
-- ✅ Assign & Notify panel — Data Owner · Tech Team · Data Steward · Compliance presets
-- ✅ Role-specific pre-composed email body per recipient type
-- ✅ `mailto:` link button — opens default email client
-- ✅ Shareable deep link `?draft_id=...&role=tech` — role-scoped form entry
-- ✅ Audit trail expander via `DraftManager.get_audit_log()`
+- ✅ Completion bar — green ≥80% · amber ≥50% · red <50%
+- ✅ 3-card grid: Fields Complete · Optional Missing · Required Missing
+- ✅ Submit disabled with explicit instruction: *"Click ← Go back and edit below"*
+- ✅ Assign panel — Data Owner, Tech Team, Steward, Compliance presets with role-specific email body
+- ✅ `mailto:` link button, sent-this-session log
+- ✅ Shareable deep link with `draft_id` and `role` params
+- ✅ Audit trail expander — requires Postgres connection
 
-**Downloads**
-- ✅ Markdown · Collibra JSON · Snowflake CSV
-- ✅ Inline download available in conversational path from the moment name is set
+**Exports** — Markdown · Collibra JSON · Snowflake CSV · inline download in chat path
 
 **Deployment**
 - ✅ `streamlit` removed from `requirements.txt` — platform manages runtime
-- ✅ `packages.txt` deleted — asyncpg uses pre-built manylinux wheels on Python 3.12 / Linux x86_64
+- ✅ `packages.txt` deleted — asyncpg uses pre-built wheels on Python 3.12 / Linux x86_64
 - ✅ `runtime.txt` — `python-3.12`
-- ✅ `requirements-dev.txt` — pytest deps separated from production
-- ✅ `Dockerfile` — `gcc` + `python3-dev` for asyncpg source-build fallback on other platforms
+- ✅ `requirements-dev.txt` — test deps separated from production
 
 ---
 
-## Phase 3 — Collaborative Editing & Governance Depth  🗓  *(Q2 2026)*
+## Phase 3 — Collaboration  🗓  *(Q2 2026)*
 
-**Multi-role simultaneous editing**
-- 🗓 Role-locked field sections — business sees theirs, tech sees theirs, steward sees all
-- 🗓 Real-time presence: "Sarah (Data Owner) is editing Classification"
-- 🗓 `DraftManager` polling bridge for co-edit (WebSocket in React rebuild)
-- 🗓 Conflict resolution UI — diff view, owner resolves
-
-**Formal approval workflow**
-- 🗓 `Draft → Candidate → Approved → Deprecated` lifecycle transitions
-- 🗓 Role-specific sign-offs gate each transition
-- 🗓 Email notification with spec diff on every state change
-- 🗓 `approved_at`, `approved_by` written to Collibra on approval
-
-**Governance rules engine**
-- 🗓 Server-side validation: `classification=Confidential` → `pii_flag` required, `data_sovereignty_flag` required
-- 🗓 `FieldRule` Pydantic models in `field_registry.py` — not hardcoded in UI
-- 🗓 Violated rules rendered as inline guardrail cards
+- 🗓 Role-to-field-group mapping — business/tech/steward see their own sections
+- 🗓 Route on URL `role` param to correct form component
+- 🗓 `Draft → Candidate → Approved → Deprecated` state machine on `DraftManager`
+- 🗓 Role-specific sign-off gates per transition
+- 🗓 Email on transition with field diff
+- 🗓 `approved_at`, `approved_by` written to spec on approval
+- 🗓 Polling-based concurrent edit detection — show "someone else is editing" warning
+- 🗓 Governance rules in `field_registry.py` as `FieldRule` Pydantic models, not hardcoded in UI
 
 ---
 
-## Phase 4 — Discovery Intelligence  🗓  *(Q3 2026)*
+## Phase 4 — Discovery  🗓  *(Q3 2026)*
 
-**Semantic search**
-- 🗓 Vector embeddings on asset descriptions and business purposes
-- 🗓 Semantic similarity alongside Collibra keyword search
-- 🗓 "More like this" from any search result card
-- 🗓 Search history and recent views in sidebar
-
-**Duplicate detection**
-- 🗓 Compare NLQ input against existing products via embeddings before form opens
-- 🗓 Similarity > threshold: `This looks similar to X — remix instead?`
-- 🗓 Reduces catalogue sprawl without blocking creation
-
-**Lineage visualisation**
-- 🗓 Upstream / downstream dependency graph from `lineage_upstream` / `lineage_downstream` fields
-- 🗓 Impact analysis: "Deprecating this product affects 4 downstream consumers"
-
-**Maturity scoring**
-- 🗓 `score_spec_completeness(spec)` wired into maturity dashboard
-- 🗓 Per-dimension scores: governance · technical · operational · compliance
-- 🗓 Maturity badge on search result cards
+- 🗓 Vector embeddings on `description` + `business_purpose` fields
+- 🗓 Similarity search before NLQ intake — surface existing products, offer Remix
+- 🗓 Semantic search alongside Collibra keyword search
+- 🗓 Lineage graph from `lineage_upstream` / `lineage_downstream` fields
+- 🗓 `score_spec_completeness()` wired into maturity dashboard — per-dimension scores
 
 ---
 
-## Phase 5 — Enterprise Integrations  🗓  *(Q4 2026)*
+## Phase 5 — Enterprise  🗓  *(Q4 2026)*
 
-**Collibra write-back**
-- 🗓 On submit: `POST /assets` + `PATCH /assets/{id}/attributes`
-- 🗓 Collibra asset ID stored in spec and shown in completion screen
-- 🗓 Remix path: `PATCH` existing asset when `collibra_id` is set
-
-**Snowflake DDL generation**
-- 🗓 From `column_definitions` + `materialization_type` + `schema_location`: generate `CREATE TABLE` / `CREATE VIEW`
-- 🗓 Download `.sql` from handoff screen
-- 🗓 Optional: push DDL to Snowflake staging environment
-
-**Slack / Teams notifications**
-- 🗓 Webhook on spec submission → `#data-governance` channel notification
-- 🗓 Configurable per-domain webhooks
-- 🗓 Mention nominated data owner by handle
-
-**SSO + RBAC**
-- 🗓 SAML / OIDC via APIM — real identities in audit log
-- 🗓 Role inferred from OIDC claims — field-level visibility enforced server-side
-- 🗓 Read-only users cannot edit, business users cannot see tech fields
-
-**React frontend (inflection point)**
-- 🗓 FastAPI backend — exposes all concierge methods as REST endpoints
-- 🗓 React frontend — replaces Streamlit render layer only; AI pipeline, models, and connectors unchanged
-- 🗓 Enables WebSocket co-edit, native SSO, mobile layout, micro-interactions
-- 🗓 `src/agents/`, `src/models/`, `src/connectors/` — transferred as-is
+- 🗓 Collibra write-back on submit — `POST /assets` + `PATCH /assets/{id}/attributes`
+- 🗓 Snowflake DDL from `column_definitions` + `materialization_type` + `schema_location`
+- 🗓 Slack / Teams webhook on spec submission
+- 🗓 SAML / OIDC via APIM — real identities in audit log, role from claims
+- 🗓 React + FastAPI evaluation — `src/` transfers unchanged, render layer only changes
 
 ---
 
-## Phase 6 — AI Agent Upgrade  💡  *(2027)*
+## Phase 6 — AI Agents  💡  *(2027 — not yet scoped)*
 
-**Autonomous spec research**
-- 💡 Given name + domain, AI browses internal catalogue and pre-fills lineage, source systems, related reports
-- 💡 Confidence scores surfaced per auto-extracted field
-
-**Regulatory change monitoring**
-- 💡 Scheduled job: compare regulatory scope of all Approved specs against published change feeds (ESMA, FCA, SEC)
-- 💡 Flag specs requiring re-review; draft impact summary for affected stewards
-
-**Proactive quality alerts**
-- 💡 Monitor `data_quality_score` trend across Approved products
-- 💡 Alert data owner when score drops below SLA threshold
-- 💡 Suggest spec amendments when observed data freshness mismatches retention period
-
-**Natural language spec diff**
-- 💡 "What changed between v1 and v2?" → AI narrates the diff in plain English
-- 💡 Shown in audit trail alongside raw field changes
+- 💡 Autonomous lineage and source system research from internal catalogue
+- 💡 Regulatory change feed monitoring — flag Approved specs affected by ESMA/FCA/SEC updates
+- 💡 Quality score alerting — notify owner when score drops below SLA threshold
+- 💡 Natural language spec diff — "what changed between v1 and v2" in plain English
 
 ---
 
-*Last updated: March 2026 · Status: Phases 0–2 shipped · Phase 3 in design*
+*Last updated: March 2026 · Phases 0–2 shipped · Phase 3 in design*

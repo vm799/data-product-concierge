@@ -9,8 +9,8 @@
  ╚═══════════════════════════════════════════════════════════════════╝
 ```
 
-> **The 25-minute compliance form is now an 8-minute review.**
-> Describe your data product once. AI pre-fills the fields. You confirm, not type.
+> **From a blank 35-field form to an AI-guided confirmation workflow.**
+> Describe your data product once. AI extracts what it can. You confirm, not type.
 
 ---
 
@@ -89,6 +89,24 @@ AI is not decorative here. It is wired into six specific points in the journey w
 | **Demo mode kill-switch** | `_demo_active()` is checked at the top of every AI call path. When true, the function returns immediately with static fallback data. Zero LLM calls in demo mode — by code path, not by config hope. |
 | **Timeout fallbacks** | Every `run_async()` call has an explicit timeout (8s for field-level calls, 20s for NLQ intake). `asyncio.TimeoutError` is caught before the generic `Exception` handler. On timeout: static fallback returned, warning logged, page continues rendering. |
 
+```mermaid
+flowchart TD
+    A[System prompt\ngrounding rule] --> B[JSON mode\nAPI-enforced]
+    B --> C[Enum options\nin every prompt]
+    C --> D[Confidence threshold\nenforced in Python]
+    D --> E[Human 💡 badge\nreview and confirm]
+    E --> F[Demo mode\nkill-switch]
+    F --> G[Timeout fallback\n8s / 20s]
+
+    style A fill:#f8f9fa,stroke:#6c757d
+    style B fill:#f8f9fa,stroke:#6c757d
+    style C fill:#f8f9fa,stroke:#6c757d
+    style D fill:#fff3cd,stroke:#ffc107
+    style E fill:#cce5ff,stroke:#004085
+    style F fill:#f8d7da,stroke:#721c24
+    style G fill:#f8f9fa,stroke:#6c757d
+```
+
 ### Model drift controls — how each one actually works
 
 | Risk | What's in the code |
@@ -115,7 +133,7 @@ AI is not decorative here. It is wired into six specific points in the journey w
   │                       GDPR + MiFID II"    field        │
   │                              ↓                ↓        │
   │                         AI extracts      💡 badge on   │
-  │                         12 fields        each pre-fill │
+  │                         what it can      each pre-fill │
   │                                                         │
   │  4. GOVERN            5. HAND OFF         6. SUBMIT    │
   │                                                         │
@@ -125,6 +143,22 @@ AI is not decorative here. It is wired into six specific points in the journey w
   │                       deep link                        │
   │                                                         │
   └─────────────────────────────────────────────────────────┘
+```
+
+```mermaid
+flowchart LR
+    Search([Search Collibra]) --> Exists{Already exists?}
+    Exists -->|Yes| Remix[Remix existing]
+    Exists -->|No| NLQ[NLQ intake]
+    Remix --> PrePop[Guided form\npre-populated]
+    NLQ --> Extract[AI extraction\nchat_turn]
+    Extract --> Badges[Guided form\nwith 💡 badges]
+    PrePop --> Complete{All fields\ncomplete?}
+    Badges --> Complete
+    Complete -->|No — loop back| Badges
+    Complete -->|Yes| Handoff([Handoff screen])
+    Handoff --> Export[Export\n.md / .json / .csv]
+    Handoff --> Submit[Submit for\nreview]
 ```
 
 ---
@@ -137,7 +171,7 @@ The Data Product Concierge guides business and technical teams through the full 
 
 The core insight: instead of asking a business user to fill in 35 governance fields from scratch, the Concierge asks them to describe their data product in one paragraph. AI extracts every field it can and pre-fills the form. The user reviews suggestions rather than types.
 
-Time-to-complete drops from ~25 minutes to ~8 minutes. Field error rate drops because fuzzy matching prevents invalid enum values from entering Collibra.
+The user reviews AI suggestions rather than composing answers from scratch. For constrained option fields, the AI fuzzy-matches free-text input to canonical Collibra values — catching typos and shorthand before they reach the catalogue.
 
 ---
 
@@ -185,7 +219,7 @@ When you type a value for a constrained field — say `SFDR art 9` into Regulato
 | Medium (40–70%) | Inline banner: `Did you mean "SFDR Article 9"?` with confirm / keep buttons |
 | Low (< 40%) | Warning caption, your value passed through unchanged |
 
-No invalid free-text enters Collibra.
+For constrained option fields in live mode, unrecognised values are matched or flagged before reaching Collibra.
 
 ---
 
@@ -204,21 +238,94 @@ When business fields are complete, the Concierge generates a personalised summar
 From the handoff screen:
 
 - **Download** as Markdown (human-readable), Collibra JSON (bulk import), or Snowflake CSV (DATA_GOVERNANCE schema ingest)
-- **Email** the data owner, tech team, data steward, or compliance officer — pre-composed role-specific body with a shareable deep link so they fill their section directly in the app
-- **Submit** for formal governance review — the button is disabled with a clear message until all required fields are complete
-- **Audit trail** — every change, who made it, when
+- **Email** the data owner, tech team, data steward, or compliance officer — pre-composed role-specific body per recipient type, with a shareable deep link that opens the draft in a role-scoped session
+- **Submit** for formal governance review — the button is disabled with a clear instruction until all required fields are complete: *"Click ← Go back and edit below to complete them"*
+- **Audit trail** — every change, who made it, when — requires a Postgres connection (`POSTGRES_DSN`)
 
 ---
 
 ### Ingredient label
 
-Every data product has a compact governance card: classification, regulatory scope, PII flag, SLA tier, retention period, owner, steward, and data quality score. It answers *"can I use this data?"* in under five seconds.
+Every data product has a compact governance card: classification, regulatory scope, PII flag, SLA tier, retention period, owner, steward, and data quality score. It answers *"can I use this data?"* at a glance.
+
+---
+
+### The UX details that matter
+
+Small decisions compound. Here is what was built into every interaction:
+
+```
+  MOMENT                        WHAT WAS BUILT
+  ────────────────────────────  ──────────────────────────────────────────
+  Typing a free-text enum       Spinner appears. AI matches silently at
+  value and pressing Continue   high confidence. Asks you to confirm at
+                                medium. Warns at low. Shows you the exact
+                                matched value in the button: Use "SFDR
+                                Article 9" — not a generic "Use suggestion".
+
+  Moving through the form       💡 badge marks every AI-suggested field.
+                                Accepting it removes the badge. Typing a
+                                new value removes it too. Skipping leaves
+                                it — the suggestion is still there when
+                                you come back.
+
+  Changing a sensitive field    ⚡ amber banner appears above the field
+  on a remix                    before you commit. Cached — if you change
+                                the same field to the same value again,
+                                no second LLM call is made.
+
+  LLM taking time to respond    Spinner: "Thinking…". The form does not
+                                freeze or show a blank screen.
+
+  Required fields missing at    Submit button is disabled. The error
+  submission                    names the specific missing fields and
+                                says exactly what to do: *"Click ← Go
+                                back and edit below to complete them."*
+
+  Collibra values mismatched    Smart disambiguation UI: confirm the
+  (medium confidence)           correct value or keep yours — one click
+                                either way, no re-typing.
+
+  Session state from an older   Version guard at app startup clears
+  Streamlit version             stale widget state automatically.
+                                You never see a deserialization error.
+```
+
+---
+
+### Built to be robust — what happens when things go wrong
+
+The application is designed to degrade gracefully. No screen breaks. No raw errors shown to users.
+
+```
+  WHAT FAILS                   WHAT THE USER SEES
+  ──────────────────────────   ────────────────────────────────────────
+  LLM call times out (8–20s)   Static field hint from the registry.
+                               Form continues. Warning logged silently.
+
+  LLM returns invalid JSON     Deterministic fallback response.
+                               Chat path continues uninterrupted.
+
+  validate_and_normalise fails Your original value is passed through.
+                               No match attempted. No error shown.
+
+  generate_completion_message  Handoff screen renders normally.
+  fails                        AI summary card simply absent.
+
+  Postgres unavailable         App runs fully without draft persistence.
+                               Audit trail not available until reconnected.
+
+  Credentials missing /        Demo mode activates automatically.
+  APIM unreachable             Full UI available on sample data.
+```
+
+Every AI call catches `asyncio.TimeoutError` separately from generic exceptions — so expected latency spikes don't flood error logs. Every exception path logs `exc_info=True` so genuine failures are traceable in production.
 
 ---
 
 ### Demo mode
 
-No credentials needed to explore the full app. Demo mode activates automatically when no APIM connection is configured. All three creation paths, all AI features, and the full handoff flow run on sample data. A sidebar toggle switches between demo and live data instantly.
+No credentials needed to explore the full app. Demo mode activates automatically when no APIM connection is configured. All three creation paths and every screen run on sample data. Every AI feature's UI is exercised — on deterministic preview functions, not live LLM calls. A sidebar toggle switches between demo and live data in any environment.
 
 ---
 
@@ -232,7 +339,7 @@ No credentials needed to explore the full app. Demo mode activates automatically
 app.py                          ← Streamlit orchestrator, session state, routing
 src/
   agents/
-    concierge.py                ← All LLM methods (11), APIM / OpenAI / Bedrock routing
+    concierge.py                ← All LLM methods, APIM / OpenAI / Bedrock routing
   components/
     nlq_intake.py               ← NLQ → field extraction screen (pre-form)
     guided_form.py              ← Card-by-card form, AI badges, disambiguation, impact banners
@@ -307,6 +414,16 @@ AWS_REGION=us-east-1
 ```
 
 APIM path: `APIMTokenManager.get_llm_headers()` (sync — not async) returns fresh auth headers per call. `AsyncAzureOpenAI` is initialised once with `api_key="placeholder"`; headers are injected via `extra_headers` on each `_call_openai()`.
+
+```mermaid
+flowchart TD
+    Start([LLM call]) --> APIM{LLM_VIA_APIM\n= true?}
+    APIM -->|Yes| AzureOAI[AsyncAzureOpenAI\nvia APIM gateway]
+    AzureOAI --> APIMHeaders[APIM injects auth\nheaders per call]
+    APIM -->|No| Bedrock{LLM_PROVIDER\n= bedrock?}
+    Bedrock -->|Yes| BRT[boto3 Bedrock\nClaude]
+    Bedrock -->|No| Direct[AsyncOpenAI\ndirect — default]
+```
 
 ---
 
@@ -489,6 +606,31 @@ Demo mode is not just for demos. It is the failure mode when credentials are mis
 
 `ai_suggested_fields` is a `set[str]` in session state. It is cleared when a field is accepted or overridden, never on page rerun. This is intentional — the badge persists across rerenders until the user acts.
 
+```mermaid
+stateDiagram-v2
+    [*] --> Suggested : AI extracts field\n_apply_extracted_to_spec
+
+    Suggested --> Accepted : User clicks Continue
+    Suggested --> Overridden : User types new value
+    Suggested --> Suggested : User skips field\nbadge stays
+
+    Accepted --> [*]
+    Overridden --> [*]
+
+    note right of Suggested
+        Field in ai_suggested_fields.
+        💡 badge rendered in UI.
+    end note
+    note right of Accepted
+        Field removed from\nai_suggested_fields.
+        Badge disappears.
+    end note
+    note right of Overridden
+        Field removed from\nai_suggested_fields.
+        Badge disappears.
+    end note
+```
+
 ---
 
 ### Disambiguation flow
@@ -511,6 +653,23 @@ When `validate_and_normalise()` returns `0.4 ≤ confidence < 0.7`:
        ↓
   User clicks Use "SFDR Article 9" → matched value assigned, field advances
   User clicks Keep my value        → raw value assigned, field advances
+```
+
+```mermaid
+flowchart TD
+    A([User types value\nand presses Continue]) --> B[_maybe_normalise called]
+    B --> C{confidence?}
+    C -->|< 0.4| D[Warn caption shown\nvalue passed through unchanged]
+    C -->|0.4 to 0.7| E[Store in session state\ndisambig_field]
+    E --> F[Form stays on same card\nfield NOT advanced]
+    F --> G{User chooses}
+    G -->|Use matched value| H[Canonical value assigned\nfield advances]
+    G -->|Keep my value| I[Raw value assigned\nfield advances]
+    C -->|>= 0.7| J[Silent accept\ngreen toast shown]
+
+    style D fill:#fff3cd,stroke:#ffc107
+    style E fill:#cce5ff,stroke:#004085
+    style J fill:#d4edda,stroke:#28a745
 ```
 
 `matched` in session state is always the canonical string, never a formatted message. The button renders `f'Use "{matched_display}"'` directly — no regex extraction needed.
